@@ -185,7 +185,17 @@ Current completion semantics inspect the final non-empty line of the current ass
 
 The Stop button is a strong signal that generation is active, but very fast responses may complete without the runner observing it.
 
-The assistant text must be stable for a short period before evaluation.
+### Response-completion authority
+
+For the currently verified UI, a `Regenerate response` action inside the current turn while no Stop button is active is authoritative evidence that the response has completed.
+
+Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is already present.
+
+Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper.
+
+Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace DOM nodes.
+
+Stable-text timing is a fallback, not the primary completion signal.
 
 ### Long-running responses
 
