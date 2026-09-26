@@ -5,7 +5,7 @@ Small browser-side sequence engine for advancing a chat through repeated steps u
 ## Files
 
 - `runner.js` — readable source of truth. Edit and review this file.
-- `runner.min.js` — compact one-line distribution generated from the readable source. Intended for convenient copy/paste or bookmarklet-style use.
+- `runner.min.js` — compact one-line bookmarklet-ready distribution generated from the readable source. It always starts with `javascript:` and can be copied directly into a browser bookmark URL.
 
 ## What it does
 
@@ -273,3 +273,23 @@ and can fall back through the assistant search unit and selection-message contai
 The runner also re-resolves the current turn from its pre-send turn snapshot on every evaluation. This protects against React/virtualization replacing or duplicating a turn DOM node while preserving the same conversation turn.
 
 A completed turn must never remain indefinitely in `WAITING_FOR_RESPONSE` merely because one preferred assistant wrapper was not found.
+
+
+## Bookmarklet distribution
+
+`runner.min.js` is the ready-to-paste bookmarklet artifact.
+
+Permanent rules:
+
+- the file starts with `javascript:`
+- the complete file is exactly one line
+- the executable payload is generated from `runner.js`
+- the compact file is never edited independently
+- JavaScript syntax is validated on the payload before the `javascript:` prefix is added
+
+After every source change, rebuild and verify both:
+
+```text
+startsWith("javascript:")
+lineCount === 1
+```
