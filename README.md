@@ -150,3 +150,50 @@ The integration depends on the ChatGPT web DOM, so selectors may require mainten
 This version was designed after a dedicated DOM probe rather than by guessing selectors. The probe established the actual turn, assistant-message, composer, Send and Stop structures used by the tested ChatGPT UI.
 
 The next useful evolution would be extracting the workflow configuration from the engine so multiple named sequences can reuse the same runner core.
+
+
+## Control panel
+
+The runner now includes a small floating management panel.
+
+It can be dragged around the page and minimized. Its position and minimized state are persisted in browser local storage.
+
+The panel exposes current, DOM-observable chat metrics:
+
+- total user + assistant messages
+- turn count
+- user / assistant message counts
+- combined visible text character count
+- runner responses completed
+- prompts sent by the runner
+- runner elapsed time
+- current state
+
+These are operational indicators, not an official ChatGPT context-window or token counter.
+
+### Run limits
+
+The panel supports two safe stop controls:
+
+- **Stop at step #X** — stop after runner response X completes.
+- **Stop after N more** — calculate a target relative to the number of runner responses already completed.
+
+A run limit never interrupts an assistant response in the middle. It is evaluated after the current assistant response is fully completed and before the next continuation prompt is sent.
+
+The limit can be changed or cleared while the runner is active.
+
+The same controls are also exposed through the debug API:
+
+```js
+__sequenceRunner.setAbsoluteStepLimit(20)
+__sequenceRunner.setRelativeStepLimit(5)
+__sequenceRunner.clearStepLimit()
+__sequenceRunner.getMetrics()
+```
+
+
+## Deferred roadmap item: automatic chat rollover
+
+A future feature may detect that a conversation is becoming too long, ask the current chat to produce a continuation/handoff prompt, open a fresh chat, transfer that handoff prompt, and resume the sequence there.
+
+This is intentionally deferred. It should be designed separately because it introduces navigation, state transfer, recovery and cross-chat correctness concerns.
