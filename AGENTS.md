@@ -207,6 +207,34 @@ After programmatic insertion, verify the actual composer contents before clickin
 
 Always preserve an immediate manual stop path.
 
+### Start-mode configuration
+
+The runner must not assume that the task was already stated in the chat.
+
+The management panel supports:
+
+- existing-context mode, which preserves the original continuation behavior
+- new-task mode, which embeds user-supplied free-form task text into the first runner prompt
+
+Loading the script should prepare the runner and panel, not automatically send the first prompt. Sending begins only after an explicit Start action or an equivalent public API call.
+
+### Intermediate messages
+
+The runner supports free-form messages inserted during an active sequence.
+
+Intermediate messages are queued for response boundaries; never interrupt an assistant response that is still generating.
+
+A message may be queued for:
+
+- the next safe boundary
+- N additional completed runner-managed responses from the current point
+
+When an intermediate message is due at the same boundary as the ordinary completion marker, the user-queued message takes precedence so the user can revise the task or endpoint.
+
+The explicit step-limit safety guard has higher priority than queued intermediate messages.
+
+Queued messages must preserve the one-send/one-completed-turn invariant and must not cause duplicate continuation sends.
+
 ### Management panel and run limits
 
 The current runner includes a draggable/minimizable management panel.
@@ -345,6 +373,13 @@ Test public behavior, not implementation details.
 
 Important behavioral cases include:
 
+- start mode does not send before explicit user start
+- new-task mode embeds the supplied task in the first prompt
+- existing-context mode preserves the original first-prompt behavior
+- an intermediate message queued for "now" waits until the current response is complete
+- an intermediate message scheduled after N responses is injected at the correct boundary
+- a due intermediate message takes precedence over the ordinary completion marker
+- the explicit step limit takes precedence over intermediate messages
 - initial prompt is sent once
 - one completed non-final response causes exactly one continuation
 - "עדיין לא סיימתי" does not stop the workflow
