@@ -249,6 +249,8 @@ Queued messages must preserve the one-send/one-completed-turn invariant and must
 
 The current runner includes a draggable/minimizable management panel.
 
+The panel body must scroll internally instead of growing to cover most of the viewport. The expanded panel is user-resizable, and its size is persisted. Minimizing must collapse the height rather than leave an empty fixed-height shell.
+
 The panel reports operational chat/run metrics and allows a safe step limit to be configured either as an absolute runner-response number or as N additional responses from the current point.
 
 A step limit is a boundary between completed responses. Never implement it by interrupting a response that is currently generating.
