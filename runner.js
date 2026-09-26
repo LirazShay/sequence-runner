@@ -1,4 +1,4 @@
-// Sequence Runner v3.4
+// Sequence Runner v3.5
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -41,7 +41,18 @@
 
     const PANEL_STORAGE_KEYS = Object.freeze({
         position: "sequence-runner-panel-position",
+        size: "sequence-runner-panel-size",
         minimized: "sequence-runner-panel-minimized"
+    });
+
+    const PANEL_DEFAULT_SIZE = Object.freeze({
+        width: 300,
+        height: 420
+    });
+
+    const PANEL_MIN_SIZE = Object.freeze({
+        width: 250,
+        height: 220
     });
 
     document.getElementById("chatgpt-auto-status")?.remove();
@@ -54,8 +65,14 @@
         "position:fixed",
         "top:20px",
         "right:20px",
-        "width:320px",
-        "max-width:calc(100vw - 24px)",
+        "width:" + PANEL_DEFAULT_SIZE.width + "px",
+        "height:" + PANEL_DEFAULT_SIZE.height + "px",
+        "min-width:" + PANEL_MIN_SIZE.width + "px",
+        "min-height:" + PANEL_MIN_SIZE.height + "px",
+        "max-width:calc(100vw - 16px)",
+        "max-height:calc(100vh - 16px)",
+        "display:flex",
+        "flex-direction:column",
         "background:#111827",
         "color:#f9fafb",
         "border:1px solid rgba(255,255,255,.14)",
@@ -69,12 +86,12 @@
     ].join(";");
 
     panel.innerHTML = [
-        '<div data-role="header" style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:#0b1220;cursor:move;user-select:none">',
+        '<div data-role="header" style="display:flex;align-items:center;gap:8px;padding:8px 9px;background:#0b1220;cursor:move;user-select:none;flex:0 0 auto">',
         '<strong style="flex:1;font-size:13px">Sequence Runner</strong>',
         '<button type="button" data-action="minimize" title="מזער" style="border:0;background:#243044;color:#fff;border-radius:6px;width:28px;height:26px;cursor:pointer;font-size:16px;line-height:1">−</button>',
         '</div>',
-        '<div data-role="body">',
-        '<div data-role="status" style="padding:9px 10px;background:#17a2b8;color:#fff;font-weight:600">🚀 Starting...</div>',
+        '<div data-role="body" style="min-height:0;flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable">',
+        '<div data-role="status" style="position:sticky;top:0;z-index:2;padding:8px 9px;background:#17a2b8;color:#fff;font-weight:600">🚀 Starting...</div>',
         '<div style="padding:10px">',
         '<div data-role="start-config" style="margin-bottom:10px">',
         '<div style="font-weight:700;margin-bottom:7px">התחלה</div>',
@@ -117,7 +134,8 @@
         '<div style="margin-top:7px;font-size:11px;color:#94a3b8">הגבול נבדק רק אחרי שתשובת ChatGPT הנוכחית הושלמה; הוא לא חותך תשובה באמצע.</div>',
         '</div>',
         '</div>',
-        '</div>'
+        '</div>',
+        '<div data-role="resize-handle" title="גרור לשינוי גודל" style="position:absolute;left:0;bottom:0;width:22px;height:22px;cursor:nesw-resize;z-index:5;display:flex;align-items:flex-end;justify-content:flex-start;padding:2px;box-sizing:border-box;color:#94a3b8;font-size:15px;line-height:1;user-select:none;touch-action:none">↙</div>'
     ].join("");
 
     document.body.appendChild(panel);
@@ -127,6 +145,7 @@
     const metricsDiv = panel.querySelector('[data-role="metrics"]');
     const limitStatusDiv = panel.querySelector('[data-role="limit-status"]');
     const injectionStatusDiv = panel.querySelector('[data-role="injection-status"]');
+    const resizeHandle = panel.querySelector('[data-role="resize-handle"]');
 
     const log = [];
     const processedTurnKeys = new Set();
@@ -781,8 +800,129 @@
         return injectionQueue.shift();
     }
 
+    function getPanelSizeLimits() {
+        return {
+            maxWidth: Math.max(
+                PANEL_MIN_SIZE.width,
+                window.innerWidth - 16
+            ),
+            maxHeight: Math.max(
+                PANEL_MIN_SIZE.height,
+                window.innerHeight - 16
+            )
+        };
+    }
+
+    function normalizePanelSize(width, height) {
+        const limits = getPanelSizeLimits();
+
+        return {
+            width: Math.max(
+                PANEL_MIN_SIZE.width,
+                Math.min(
+                    Number(width) ||
+                        PANEL_DEFAULT_SIZE.width,
+                    limits.maxWidth
+                )
+            ),
+            height: Math.max(
+                PANEL_MIN_SIZE.height,
+                Math.min(
+                    Number(height) ||
+                        PANEL_DEFAULT_SIZE.height,
+                    limits.maxHeight
+                )
+            )
+        };
+    }
+
+    function savePanelSize() {
+        if (
+            panelBody.style.display === "none"
+        ) {
+            return;
+        }
+
+        try {
+            const rect =
+                panel.getBoundingClientRect();
+
+            const size = normalizePanelSize(
+                rect.width,
+                rect.height
+            );
+
+            localStorage.setItem(
+                PANEL_STORAGE_KEYS.size,
+                JSON.stringify(size)
+            );
+        } catch (_) {}
+    }
+
+    function restorePanelSize() {
+        let size = PANEL_DEFAULT_SIZE;
+
+        try {
+            const rawSize =
+                localStorage.getItem(
+                    PANEL_STORAGE_KEYS.size
+                );
+
+            if (rawSize) {
+                size = JSON.parse(rawSize);
+            }
+        } catch (_) {}
+
+        const normalized =
+            normalizePanelSize(
+                size.width,
+                size.height
+            );
+
+        panel.style.width =
+            normalized.width + "px";
+
+        panel.style.height =
+            normalized.height + "px";
+    }
+
+    function keepPanelInViewport() {
+        const rect =
+            panel.getBoundingClientRect();
+
+        const maxLeft = Math.max(
+            0,
+            window.innerWidth -
+                Math.min(
+                    rect.width,
+                    window.innerWidth
+                )
+        );
+
+        const maxTop = Math.max(
+            0,
+            window.innerHeight - 40
+        );
+
+        const left = Math.max(
+            0,
+            Math.min(rect.left, maxLeft)
+        );
+
+        const top = Math.max(
+            0,
+            Math.min(rect.top, maxTop)
+        );
+
+        panel.style.left = left + "px";
+        panel.style.top = top + "px";
+        panel.style.right = "auto";
+    }
+
     function restorePanelPreferences() {
         try {
+            restorePanelSize();
+
             const rawPosition = localStorage.getItem(
                 PANEL_STORAGE_KEYS.position
             );
@@ -794,22 +934,11 @@
                     Number.isFinite(position.left) &&
                     Number.isFinite(position.top)
                 ) {
-                    panel.style.left = Math.max(
-                        0,
-                        Math.min(
-                            position.left,
-                            window.innerWidth -
-                                panel.offsetWidth
-                        )
-                    ) + "px";
+                    panel.style.left =
+                        position.left + "px";
 
-                    panel.style.top = Math.max(
-                        0,
-                        Math.min(
-                            position.top,
-                            window.innerHeight - 40
-                        )
-                    ) + "px";
+                    panel.style.top =
+                        position.top + "px";
 
                     panel.style.right = "auto";
                 }
@@ -823,6 +952,19 @@
             panelBody.style.display =
                 minimized ? "none" : "";
 
+            if (resizeHandle) {
+                resizeHandle.style.display =
+                    minimized ? "none" : "flex";
+            }
+
+            if (minimized) {
+                panel.style.height = "auto";
+                panel.style.minHeight = "0";
+            } else {
+                panel.style.minHeight =
+                    PANEL_MIN_SIZE.height + "px";
+            }
+
             const minimizeButton =
                 panel.querySelector(
                     '[data-action="minimize"]'
@@ -834,6 +976,8 @@
                 minimizeButton.title =
                     minimized ? "פתח" : "מזער";
             }
+
+            keepPanelInViewport();
         } catch (_) {}
     }
 
@@ -985,8 +1129,30 @@
                 const minimized =
                     panelBody.style.display !== "none";
 
-                panelBody.style.display =
-                    minimized ? "none" : "";
+                if (minimized) {
+                    savePanelSize();
+                    panelBody.style.display = "none";
+                    panel.style.height = "auto";
+                    panel.style.minHeight = "0";
+
+                    if (resizeHandle) {
+                        resizeHandle.style.display =
+                            "none";
+                    }
+                } else {
+                    panelBody.style.display = "";
+                    panel.style.minHeight =
+                        PANEL_MIN_SIZE.height + "px";
+
+                    restorePanelSize();
+
+                    if (resizeHandle) {
+                        resizeHandle.style.display =
+                            "flex";
+                    }
+
+                    keepPanelInViewport();
+                }
 
                 minimizeButton.textContent =
                     minimized ? "+" : "−";
@@ -1070,6 +1236,137 @@
         )?.addEventListener(
             "click",
             clearStepLimit
+        );
+
+        let resize = null;
+
+        resizeHandle?.addEventListener(
+            "pointerdown",
+            function (event) {
+                if (event.button !== 0) {
+                    return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                const rect =
+                    panel.getBoundingClientRect();
+
+                resize = {
+                    pointerId: event.pointerId,
+                    right: rect.right,
+                    top: rect.top
+                };
+
+                resizeHandle.setPointerCapture(
+                    event.pointerId
+                );
+            }
+        );
+
+        resizeHandle?.addEventListener(
+            "pointermove",
+            function (event) {
+                if (
+                    !resize ||
+                    resize.pointerId !==
+                        event.pointerId
+                ) {
+                    return;
+                }
+
+                const limits =
+                    getPanelSizeLimits();
+
+                const left = Math.max(
+                    0,
+                    Math.min(
+                        event.clientX,
+                        resize.right -
+                            PANEL_MIN_SIZE.width
+                    )
+                );
+
+                const width = Math.max(
+                    PANEL_MIN_SIZE.width,
+                    Math.min(
+                        resize.right - left,
+                        limits.maxWidth
+                    )
+                );
+
+                const height = Math.max(
+                    PANEL_MIN_SIZE.height,
+                    Math.min(
+                        event.clientY -
+                            resize.top,
+                        Math.min(
+                            limits.maxHeight,
+                            window.innerHeight -
+                                resize.top -
+                                8
+                        )
+                    )
+                );
+
+                panel.style.left =
+                    resize.right - width + "px";
+
+                panel.style.right = "auto";
+                panel.style.width = width + "px";
+                panel.style.height = height + "px";
+            }
+        );
+
+        const finishResize = function (event) {
+            if (
+                !resize ||
+                resize.pointerId !==
+                    event.pointerId
+            ) {
+                return;
+            }
+
+            savePanelSize();
+            keepPanelInViewport();
+            resize = null;
+        };
+
+        resizeHandle?.addEventListener(
+            "pointerup",
+            finishResize
+        );
+
+        resizeHandle?.addEventListener(
+            "pointercancel",
+            finishResize
+        );
+
+        window.addEventListener(
+            "resize",
+            function () {
+                if (
+                    panelBody.style.display !== "none"
+                ) {
+                    const rect =
+                        panel.getBoundingClientRect();
+
+                    const normalized =
+                        normalizePanelSize(
+                            rect.width,
+                            rect.height
+                        );
+
+                    panel.style.width =
+                        normalized.width + "px";
+
+                    panel.style.height =
+                        normalized.height + "px";
+                }
+
+                keepPanelInViewport();
+            }
         );
 
         if (!header) {
@@ -1170,6 +1467,7 @@
             } catch (_) {}
 
             drag = null;
+            keepPanelInViewport();
         };
 
         header.addEventListener(
