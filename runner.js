@@ -1,4 +1,4 @@
-// Sequence Runner v3.2
+// Sequence Runner v3.3
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Click the status badge to stop manually.
 
@@ -76,7 +76,29 @@
         '<div data-role="body">',
         '<div data-role="status" style="padding:9px 10px;background:#17a2b8;color:#fff;font-weight:600">🚀 Starting...</div>',
         '<div style="padding:10px">',
+        '<div data-role="start-config" style="margin-bottom:10px">',
+        '<div style="font-weight:700;margin-bottom:7px">התחלה</div>',
+        '<select data-input="task-mode" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
+        '<option value="existing">המשימה כבר ניתנה בצ׳אט</option>',
+        '<option value="new">משימה חדשה — שלב אותה בהודעה הראשונה</option>',
+        '</select>',
+        '<textarea data-input="task-text" rows="4" placeholder="כתוב כאן את המשימה..." style="display:none;width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
+        '<button type="button" data-action="start-run" style="width:100%;border:0;background:#15803d;color:#fff;border-radius:6px;padding:7px;cursor:pointer;font-weight:700">התחל ריצה</button>',
+        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה יחד עם כללי ההמשך והסיום.</div>',
+        '</div>',
         '<div data-role="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px"></div>',
+        '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-bottom:10px">',
+        '<div style="font-weight:700;margin-bottom:7px">הודעת ביניים</div>',
+        '<textarea data-input="injection-text" rows="3" placeholder="טקסט חופשי לשליחה בתוך התהליך..." style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
+        '<button type="button" data-action="queue-injection-now" style="width:100%;border:0;background:#7c3aed;color:#fff;border-radius:6px;padding:7px;cursor:pointer;margin-bottom:6px">שלח בהזדמנות הבטוחה הקרובה</button>',
+        '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">',
+        '<input data-input="injection-after" type="number" min="1" step="1" placeholder="בעוד N תגובות" style="min-width:0;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px">',
+        '<button type="button" data-action="queue-injection-after" style="border:0;background:#7c3aed;color:#fff;border-radius:6px;padding:6px 9px;cursor:pointer">תזמן</button>',
+        '</div>',
+        '<div data-role="injection-status" style="font-size:12px;color:#cbd5e1;margin-bottom:6px">אין הודעות ביניים מתוזמנות.</div>',
+        '<button type="button" data-action="clear-injections" style="width:100%;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:6px;padding:6px;cursor:pointer">נקה תור הודעות ביניים</button>',
+        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">“עכשיו” פירושו בגבול הבטוח הקרוב: לעולם לא קוטעים תשובת Assistant באמצע. תזמון “בעוד N” נספר לפי תגובות Assistant שמושלמות מרגע התזמון.</div>',
+        '</div>',
         '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px">',
         '<div style="font-weight:700;margin-bottom:7px">גבול ריצה</div>',
         '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">',
@@ -104,6 +126,7 @@
     const panelBody = panel.querySelector('[data-role="body"]');
     const metricsDiv = panel.querySelector('[data-role="metrics"]');
     const limitStatusDiv = panel.querySelector('[data-role="limit-status"]');
+    const injectionStatusDiv = panel.querySelector('[data-role="injection-status"]');
 
     const log = [];
     const processedTurnKeys = new Set();
@@ -121,7 +144,13 @@
     let stopAfterCompletedResponses = null;
     let stopLimitMode = null;
     let currentCycle = null;
-    const runnerStartedAt = Date.now();
+    let runStarted = false;
+    let selectedTaskMode = "existing";
+    let selectedTaskText = "";
+    let runnerStartedAt = null;
+    let injectionSeq = 0;
+    let injectionSentCount = 0;
+    const injectionQueue = [];
     let lastStatusMessage = null;
     let lastStatusColor = null;
 
@@ -212,6 +241,29 @@
             "^" + CONFIG.DONE_KEYWORD + "[.!?]?$",
             "u"
         ).test(lastLine);
+    }
+
+    function buildFirstPrompt(mode, taskText) {
+        if (mode !== "new") {
+            return CONFIG.FIRST_PROMPT;
+        }
+
+        const task = normalizeText(taskText);
+
+        if (!task) {
+            throw new Error(
+                "A task is required when starting in new-task mode."
+            );
+        }
+
+        return [
+            "זו המשימה שעליך לבצע כעת:",
+            task,
+            "",
+            "בכל פעם שאכתוב 'תמשיך לשלב הבא', תתקדם שלב אחד.",
+            "כשתסיים את כל השלבים לחלוטין, תכתוב בסוף התשובה את המילה 'סיימתי' אך לפני כן אל תשתמש במילה הזו כלל.",
+            "עכשיו, התחל לבצע את המשימה והתקדם לשלב הראשון."
+        ].join("\n");
     }
 
     function getTurns() {
@@ -408,8 +460,13 @@
                 formatInteger(completedResponseCount) + '</strong>',
             '<span style="color:#94a3b8">נשלחו ע״י Runner</span><strong>' +
                 formatInteger(cycleSeq) + '</strong>',
+            '<span style="color:#94a3b8">הודעות ביניים</span><strong>' +
+                formatInteger(injectionSentCount) + ' / ' +
+                formatInteger(injectionQueue.length) + ' ממתינות</strong>',
             '<span style="color:#94a3b8">זמן ריצה</span><strong>' +
-                formatDuration(Date.now() - runnerStartedAt) + '</strong>',
+                (runnerStartedAt == null
+                    ? "—"
+                    : formatDuration(Date.now() - runnerStartedAt)) + '</strong>',
             '<span style="color:#94a3b8">State</span><strong style="font-size:11px;word-break:break-word">' +
                 state + '</strong>'
         ].join("");
@@ -428,6 +485,39 @@
                 "גבול פעיל: עצירה אחרי תגובת Runner #" +
                 stopAfterCompletedResponses +
                 " (" + remaining + " נותרו).";
+        }
+
+        const startConfig = panel.querySelector(
+            '[data-role="start-config"]'
+        );
+
+        if (startConfig) {
+            startConfig.style.display =
+                runStarted ? "none" : "";
+        }
+
+        if (injectionStatusDiv) {
+            if (!injectionQueue.length) {
+                injectionStatusDiv.textContent =
+                    "אין הודעות ביניים מתוזמנות.";
+            } else {
+                const next = injectionQueue[0];
+                const remaining = Math.max(
+                    0,
+                    next.targetCompletedResponses -
+                        completedResponseCount
+                );
+
+                injectionStatusDiv.textContent =
+                    injectionQueue.length +
+                    " ממתינות. הבאה: " +
+                    (remaining === 0
+                        ? "בגבול הבטוח הקרוב"
+                        : "בעוד " +
+                          remaining +
+                          " תגובות") +
+                    ".";
+            }
         }
 
         const stopButton = panel.querySelector(
@@ -495,6 +585,88 @@
         );
     }
 
+    function queueInjection(text, afterResponses) {
+        const message = normalizeText(text);
+
+        if (!message) {
+            throw new Error(
+                "Intermediate message cannot be empty."
+            );
+        }
+
+        const offset = Number(afterResponses);
+
+        if (
+            !Number.isInteger(offset) ||
+            offset < 0
+        ) {
+            throw new Error(
+                "Intermediate message offset must be a non-negative integer."
+            );
+        }
+
+        if (stopped) {
+            throw new Error(
+                "Cannot queue a message after the runner has stopped."
+            );
+        }
+
+        const item = {
+            id: ++injectionSeq,
+            text: message,
+            targetCompletedResponses:
+                completedResponseCount + offset,
+            createdAt: Date.now()
+        };
+
+        injectionQueue.push(item);
+        injectionQueue.sort(function (a, b) {
+            return (
+                a.targetCompletedResponses -
+                    b.targetCompletedResponses ||
+                a.id - b.id
+            );
+        });
+
+        record("injection-queued", {
+            id: item.id,
+            targetCompletedResponses:
+                item.targetCompletedResponses,
+            offset
+        });
+
+        renderPanel();
+        return item.id;
+    }
+
+    function clearQueuedInjections() {
+        const count = injectionQueue.length;
+        injectionQueue.length = 0;
+
+        record("injection-queue-cleared", {
+            count
+        });
+
+        renderPanel();
+    }
+
+    function takeDueInjection() {
+        if (!injectionQueue.length) {
+            return null;
+        }
+
+        const next = injectionQueue[0];
+
+        if (
+            next.targetCompletedResponses >
+            completedResponseCount
+        ) {
+            return null;
+        }
+
+        return injectionQueue.shift();
+    }
+
     function restorePanelPreferences() {
         try {
             const rawPosition = localStorage.getItem(
@@ -558,6 +730,137 @@
 
         const minimizeButton = panel.querySelector(
             '[data-action="minimize"]'
+        );
+
+        const taskModeSelect = panel.querySelector(
+            '[data-input="task-mode"]'
+        );
+
+        const taskTextArea = panel.querySelector(
+            '[data-input="task-text"]'
+        );
+
+        taskModeSelect?.addEventListener(
+            "change",
+            function () {
+                if (taskTextArea) {
+                    taskTextArea.style.display =
+                        taskModeSelect.value === "new"
+                            ? ""
+                            : "none";
+                }
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="start-run"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                beginRun(
+                    taskModeSelect?.value || "existing",
+                    taskTextArea?.value || ""
+                ).catch(function (err) {
+                    updateStatus(
+                        "🔴 " + err.message,
+                        "#b91c1c"
+                    );
+                });
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="queue-injection-now"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                const input = panel.querySelector(
+                    '[data-input="injection-text"]'
+                );
+
+                try {
+                    queueInjection(
+                        input?.value || "",
+                        0
+                    );
+
+                    if (input) {
+                        input.value = "";
+                    }
+
+                    updateStatus(
+                        "📝 הודעת ביניים תישלח בגבול הבטוח הקרוב.",
+                        "#7c3aed"
+                    );
+                } catch (err) {
+                    updateStatus(
+                        "🔴 " + err.message,
+                        "#b91c1c"
+                    );
+                }
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="queue-injection-after"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                const textInput = panel.querySelector(
+                    '[data-input="injection-text"]'
+                );
+
+                const afterInput = panel.querySelector(
+                    '[data-input="injection-after"]'
+                );
+
+                const after =
+                    parsePositiveInteger(
+                        afterInput?.value
+                    );
+
+                if (after == null) {
+                    updateStatus(
+                        "⚠️ יש להזין מספר תגובות חיובי.",
+                        "#b45309"
+                    );
+                    return;
+                }
+
+                try {
+                    queueInjection(
+                        textInput?.value || "",
+                        after
+                    );
+
+                    if (textInput) {
+                        textInput.value = "";
+                    }
+
+                    if (afterInput) {
+                        afterInput.value = "";
+                    }
+
+                    updateStatus(
+                        "📝 הודעת ביניים תוזמנה לעוד " +
+                            after +
+                            " תגובות.",
+                        "#7c3aed"
+                    );
+                } catch (err) {
+                    updateStatus(
+                        "🔴 " + err.message,
+                        "#b91c1c"
+                    );
+                }
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="clear-injections"]'
+        )?.addEventListener(
+            "click",
+            clearQueuedInjections
         );
 
         minimizeButton?.addEventListener(
@@ -666,7 +969,7 @@
             function (event) {
                 if (
                     event.button !== 0 ||
-                    event.target.closest("button,input")
+                    event.target.closest("button,input,textarea,select")
                 ) {
                     return;
                 }
@@ -980,8 +1283,12 @@
             "SENDING",
             label === "first"
                 ? "➡️ Sending first prompt..."
-                : "➡️ Sending continuation #" + (continuationCount + 1) + "...",
-            "#0056b3"
+                : label === "injection"
+                    ? "📝 Sending intermediate message..."
+                    : "➡️ Sending continuation #" + (continuationCount + 1) + "...",
+            label === "injection"
+                ? "#7c3aed"
+                : "#0056b3"
         );
 
         const beforeKeys = new Set(
@@ -1065,13 +1372,57 @@
             done: isDone(text)
         });
 
-        if (isDone(text)) {
-            stop("done-keyword", true);
+        if (shouldStopForStepLimit()) {
+            stop("step-limit", false);
             return;
         }
 
-        if (shouldStopForStepLimit()) {
-            stop("step-limit", false);
+        const responseDone = isDone(text);
+        const dueInjection = takeDueInjection();
+
+        if (dueInjection) {
+            if (responseDone) {
+                record(
+                    "completion-marker-deferred-for-injection",
+                    {
+                        injectionId: dueInjection.id
+                    }
+                );
+            }
+
+            setState(
+                "READY_TO_INJECT",
+                "📝 Intermediate message ready...",
+                "#7c3aed"
+            );
+
+            const completedCycle = cycle;
+
+            setTimeout(function () {
+                if (
+                    stopped ||
+                    currentCycle !== completedCycle
+                ) {
+                    return;
+                }
+
+                currentCycle = null;
+                injectionSentCount++;
+                renderPanel();
+
+                sendPrompt(
+                    dueInjection.text,
+                    "injection"
+                ).catch(function (err) {
+                    fail(err.message, err);
+                });
+            }, CONFIG.CONTINUE_DELAY_MS);
+
+            return;
+        }
+
+        if (responseDone) {
+            stop("done-keyword", true);
             return;
         }
 
@@ -1095,7 +1446,24 @@
                 return;
             }
 
+            const lateInjection =
+                takeDueInjection();
+
             currentCycle = null;
+
+            if (lateInjection) {
+                injectionSentCount++;
+                renderPanel();
+
+                sendPrompt(
+                    lateInjection.text,
+                    "injection"
+                ).catch(function (err) {
+                    fail(err.message, err);
+                });
+
+                return;
+            }
 
             sendPrompt(
                 CONFIG.REGULAR_PROMPT,
@@ -1277,45 +1645,40 @@
         setTimeout(evaluate, 0);
     }
 
-    async function start() {
-        updateStatus(
-            "🚀 Sequence Runner starting...",
-            "#17a2b8"
-        );
-
-        record("start");
-
-        if (!getComposer()) {
-            fail("ChatGPT composer was not found.");
-            return;
+    async function beginRun(mode, taskText) {
+        if (stopped) {
+            throw new Error(
+                "The runner has already stopped."
+            );
         }
 
-        observer = new MutationObserver(
-            scheduleEvaluate
-        );
+        if (runStarted) {
+            throw new Error(
+                "The runner has already started."
+            );
+        }
 
-        observer.observe(document.body, {
-            subtree: true,
-            childList: true,
-            characterData: true,
-            attributes: true,
-            attributeFilter: [
-                "aria-label",
-                "disabled",
-                "data-turn-key",
-                "data-markdown-text-style"
-            ]
+        const firstPrompt =
+            buildFirstPrompt(mode, taskText);
+
+        selectedTaskMode =
+            mode === "new" ? "new" : "existing";
+
+        selectedTaskText =
+            selectedTaskMode === "new"
+                ? normalizeText(taskText)
+                : "";
+
+        runStarted = true;
+        runnerStartedAt = Date.now();
+
+        record("run-started", {
+            taskMode: selectedTaskMode,
+            hasTaskText:
+                !!selectedTaskText
         });
 
-        watchdog = setInterval(
-            scheduleEvaluate,
-            CONFIG.WATCHDOG_MS
-        );
-
-        uiTimer = setInterval(
-            renderPanel,
-            CONFIG.UI_REFRESH_MS
-        );
+        renderPanel();
 
         if (getStopButton()) {
             const idleWait = {
@@ -1351,12 +1714,61 @@
 
         try {
             await sendPrompt(
-                CONFIG.FIRST_PROMPT,
+                firstPrompt,
                 "first"
             );
         } catch (err) {
             fail(err.message, err);
         }
+    }
+
+    async function initialize() {
+        updateStatus(
+            "⚙️ בחר מצב התחלה ולחץ “התחל ריצה”.",
+            "#0369a1"
+        );
+
+        record("initialized");
+
+        if (!getComposer()) {
+            fail("ChatGPT composer was not found.");
+            return;
+        }
+
+        observer = new MutationObserver(
+            scheduleEvaluate
+        );
+
+        observer.observe(document.body, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: [
+                "aria-label",
+                "disabled",
+                "data-turn-key",
+                "data-markdown-text-style"
+            ]
+        });
+
+        watchdog = setInterval(
+            scheduleEvaluate,
+            CONFIG.WATCHDOG_MS
+        );
+
+        uiTimer = setInterval(
+            renderPanel,
+            CONFIG.UI_REFRESH_MS
+        );
+
+        setState(
+            "READY_TO_START",
+            "⚙️ בחר מצב התחלה ולחץ “התחל ריצה”.",
+            "#0369a1"
+        );
+
+        renderPanel();
     }
 
     setupPanelInteractions();
@@ -1372,6 +1784,11 @@
                 sendLocked,
                 continuationCount,
                 completedResponseCount,
+                runStarted,
+                taskMode: selectedTaskMode,
+                queuedIntermediateMessages:
+                    injectionQueue.length,
+                injectionSentCount,
                 stopAfterCompletedResponses,
                 stopLimitMode,
                 chatMetrics: getChatMetrics(),
@@ -1395,8 +1812,14 @@
                         completedResponseCount,
                     continuationCount,
                     runtimeMs:
-                        Date.now() -
-                        runnerStartedAt
+                        runnerStartedAt == null
+                            ? 0
+                            : Date.now() -
+                              runnerStartedAt,
+                    intermediateSent:
+                        injectionSentCount,
+                    intermediateQueued:
+                        injectionQueue.length
                 },
                 chat: getChatMetrics(),
                 stepLimit: {
@@ -1438,6 +1861,31 @@
             );
         },
         clearStepLimit,
+        startExistingContext: function () {
+            return beginRun(
+                "existing",
+                ""
+            );
+        },
+        startWithTask: function (taskText) {
+            return beginRun(
+                "new",
+                taskText
+            );
+        },
+        queueMessage: function (
+            text,
+            afterResponses
+        ) {
+            return queueInjection(
+                text,
+                afterResponses == null
+                    ? 0
+                    : afterResponses
+            );
+        },
+        clearQueuedMessages:
+            clearQueuedInjections,
         isDone
     });
 
@@ -1445,5 +1893,5 @@
     window.__chatgptAutoContinueV3 =
         window.__sequenceRunner;
 
-    start();
+    initialize();
 })();
