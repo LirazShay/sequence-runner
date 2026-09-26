@@ -187,11 +187,15 @@ The Stop button is a strong signal that generation is active, but very fast resp
 
 The assistant text must be stable for a short period before evaluation.
 
-### Timeout
+### Long-running responses
 
-If no valid response arrives within the configured timeout, stop safely.
+Do not stop a valid ChatGPT generation merely because an arbitrary wall-clock timeout elapsed.
 
-Do not implement infinite automatic retries.
+Responses may legitimately take many minutes. The runner should continue waiting while preserving the one-send/one-turn invariant.
+
+After a long wait, status/diagnostic notices are allowed, but they must not terminate the run.
+
+Do not implement automatic resend loops. Manual stop remains the safe escape hatch if a run is genuinely stuck.
 
 ### Composer safety
 
@@ -335,7 +339,7 @@ Important behavioral cases include:
 - "עדיין לא סיימתי" does not stop the workflow
 - a response whose final completion line is "סיימתי" stops the workflow
 - many DOM mutations still cause only one send
-- timeout stops safely
+- long-running responses keep waiting without duplicate sends or automatic timeout failure
 - existing composer text is never overwritten
 - a processed turn cannot be processed twice
 
