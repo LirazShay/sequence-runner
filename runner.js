@@ -1,4 +1,4 @@
-// Sequence Runner v3.3
+// Sequence Runner v3.4
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -276,16 +276,60 @@
         return turn?.getAttribute("data-turn-key") || null;
     }
 
+    function scoreTurnNode(turn) {
+        if (!turn) {
+            return -1;
+        }
+
+        let score = 0;
+
+        if (turn.querySelector(SELECTORS.userMessage)) {
+            score += 10;
+        }
+
+        if (
+            turn.querySelector(
+                '[data-markdown-text-style="assistant-message"]'
+            )
+        ) {
+            score += 40;
+        }
+
+        if (
+            turn.querySelector(
+                '[data-content-search-unit-key$=":assistant"],' +
+                '[data-chatgpt-search-unit-key$=":assistant"]'
+            )
+        ) {
+            score += 20;
+        }
+
+        if (hasFinalUi(turn)) {
+            score += 80;
+        }
+
+        return score;
+    }
+
     function getTurnByKey(key) {
         if (!key) {
             return null;
         }
 
-        return (
-            getTurns().find(function (turn) {
-                return getTurnKey(turn) === key;
-            }) || null
-        );
+        const matches = getTurns().filter(function (turn) {
+            return getTurnKey(turn) === key;
+        });
+
+        if (!matches.length) {
+            return null;
+        }
+
+        matches.sort(function (a, b) {
+            return scoreTurnNode(b) -
+                scoreTurnNode(a);
+        });
+
+        return matches[0];
     }
 
     function getComposer() {
@@ -315,15 +359,85 @@
             return null;
         }
 
-        const found = [
-            ...turn.querySelectorAll(SELECTORS.assistantMessage)
-        ];
+        const primary = [
+            ...turn.querySelectorAll(
+                SELECTORS.assistantMessage
+            )
+        ].at(-1);
 
-        return found.at(-1) || null;
+        if (primary) {
+            return primary;
+        }
+
+        const assistantUnit = [
+            ...turn.querySelectorAll(
+                '[data-content-search-unit-key$=":assistant"],' +
+                '[data-chatgpt-search-unit-key$=":assistant"]'
+            )
+        ].at(-1);
+
+        if (assistantUnit) {
+            const selectionMessage =
+                assistantUnit.querySelector(
+                    '[data-chatgpt-selection-message-id]'
+                );
+
+            if (selectionMessage) {
+                return selectionMessage;
+            }
+
+            const nestedMarkdown =
+                assistantUnit.querySelector(
+                    '[data-markdown-text-style="assistant-message"]'
+                );
+
+            if (nestedMarkdown) {
+                return nestedMarkdown;
+            }
+        }
+
+        const assistantRole = [
+            ...turn.querySelectorAll(
+                'h4[data-conversation-role="assistant"]'
+            )
+        ].at(-1);
+
+        if (assistantRole) {
+            const roleContainer =
+                assistantRole.parentElement;
+
+            const roleSelection =
+                roleContainer?.querySelector(
+                    '[data-chatgpt-selection-message-id]'
+                );
+
+            if (roleSelection) {
+                return roleSelection;
+            }
+        }
+
+        return null;
     }
 
     function hasFinalUi(turn) {
-        return !!turn?.querySelector(SELECTORS.regenerateButton);
+        return !!turn?.querySelector(
+            SELECTORS.regenerateButton
+        );
+    }
+
+    function getAssistantText(turn) {
+        const assistant =
+            getAssistantMessage(turn);
+
+        if (!assistant) {
+            return "";
+        }
+
+        return normalizeText(
+            assistant.innerText ||
+            assistant.textContent ||
+            ""
+        );
     }
 
     function sleep(ms) {
@@ -1245,25 +1359,98 @@
     }
 
     function findNewTurn(beforeKeys, expectedPrompt) {
-        const expected = normalizeText(expectedPrompt);
+        const expected =
+            normalizeText(expectedPrompt);
 
-        const candidates = getTurns().filter(function (turn) {
-            return !beforeKeys.has(getTurnKey(turn));
+        const candidates = getTurns().filter(
+            function (turn) {
+                return !beforeKeys.has(
+                    getTurnKey(turn)
+                );
+            }
+        );
+
+        const matching = candidates.filter(
+            function (turn) {
+                const user =
+                    turn.querySelector(
+                        SELECTORS.userMessage
+                    );
+
+                const userText =
+                    normalizeText(
+                        user?.innerText ||
+                        user?.textContent ||
+                        ""
+                    );
+
+                return userText === expected;
+            }
+        );
+
+        const pool =
+            matching.length > 0
+                ? matching
+                : candidates.length === 1
+                    ? candidates
+                    : [];
+
+        if (!pool.length) {
+            return null;
+        }
+
+        pool.sort(function (a, b) {
+            return scoreTurnNode(b) -
+                scoreTurnNode(a);
         });
 
-        const matching = candidates.filter(function (turn) {
-            const user = turn.querySelector(SELECTORS.userMessage);
+        return pool[0];
+    }
 
-            const userText = normalizeText(
-                user?.innerText ||
-                    user?.textContent ||
-                    ""
+    function resolveCycleTurn(cycle) {
+        const current =
+            getTurnByKey(cycle.turnKey);
+
+        const rediscovered =
+            findNewTurn(
+                cycle.beforeKeys,
+                cycle.prompt
             );
 
-            return userText === expected;
-        });
+        let resolved = current;
 
-        return matching.at(-1) || null;
+        if (
+            rediscovered &&
+            (
+                !current ||
+                scoreTurnNode(rediscovered) >
+                    scoreTurnNode(current)
+            )
+        ) {
+            resolved = rediscovered;
+        }
+
+        if (!resolved) {
+            return null;
+        }
+
+        const resolvedKey =
+            getTurnKey(resolved);
+
+        if (
+            resolvedKey &&
+            resolvedKey !== cycle.turnKey
+        ) {
+            record("turn-rebound", {
+                id: cycle.id,
+                from: cycle.turnKey,
+                to: resolvedKey
+            });
+
+            cycle.turnKey = resolvedKey;
+        }
+
+        return resolved;
     }
 
     async function sendPrompt(prompt, label) {
@@ -1502,69 +1689,109 @@
             cycle.sawStop = true;
         }
 
-        if (!cycle.turnKey) {
-            const newTurn = findNewTurn(
-                cycle.beforeKeys,
-                cycle.prompt
-            );
+        const turn =
+            resolveCycleTurn(cycle);
 
-            if (newTurn) {
-                cycle.turnKey = getTurnKey(newTurn);
-
-                record("new-turn", {
-                    id: cycle.id,
-                    turnKey: cycle.turnKey
-                });
-
+        if (!turn) {
+            if (stopButton) {
                 setState(
-                    stopButton
-                        ? "GENERATING"
-                        : "WAITING_FOR_RESPONSE",
-                    stopButton
-                        ? waitingStatus("✍️ ChatGPT is generating...")
-                        : waitingStatus("⏳ Waiting for assistant response..."),
+                    "GENERATING",
+                    waitingStatus(
+                        "✍️ ChatGPT is generating..."
+                    ),
                     "#d39e00"
                 );
             } else {
-                if (stopButton) {
-                    setState(
-                        "GENERATING",
-                        waitingStatus("✍️ ChatGPT is generating..."),
-                        "#d39e00"
-                    );
-                }
-
-                return;
+                setState(
+                    "WAITING_FOR_TURN",
+                    waitingStatus(
+                        "⏳ Waiting for new turn..."
+                    ),
+                    "#d39e00"
+                );
             }
-        }
 
-        const turn = getTurnByKey(cycle.turnKey);
-
-        if (!turn) {
             return;
         }
 
-        const assistant = getAssistantMessage(turn);
+        if (!cycle.turnKey) {
+            cycle.turnKey =
+                getTurnKey(turn);
 
-        if (!assistant) {
+            record("new-turn", {
+                id: cycle.id,
+                turnKey: cycle.turnKey
+            });
+        }
+
+        const finalUiSeen =
+            hasFinalUi(turn);
+
+        const text =
+            getAssistantText(turn);
+
+        if (
+            finalUiSeen &&
+            text
+        ) {
+            if (text !== cycle.lastText) {
+                cycle.lastText = text;
+                cycle.lastTextChangedAt =
+                    Date.now();
+
+                record(
+                    "assistant-text-changed",
+                    {
+                        id: cycle.id,
+                        length: text.length
+                    }
+                );
+            }
+
+            record(
+                "final-ui-detected",
+                {
+                    id: cycle.id,
+                    turnKey:
+                        cycle.turnKey,
+                    textLength:
+                        text.length
+                }
+            );
+
+            setState(
+                "EVALUATING",
+                "🔎 Response complete; checking...",
+                "#17a2b8"
+            );
+
+            completeCycle(
+                cycle,
+                text
+            );
+
+            return;
+        }
+
+        if (!text) {
             setState(
                 stopButton
                     ? "GENERATING"
                     : "WAITING_FOR_RESPONSE",
                 stopButton
-                    ? waitingStatus("✍️ ChatGPT is generating...")
-                    : waitingStatus("⏳ Waiting for assistant response..."),
+                    ? waitingStatus(
+                        "✍️ ChatGPT is generating..."
+                    )
+                    : waitingStatus(
+                        finalUiSeen
+                            ? "⏳ Final response UI detected; locating text..."
+                            : "⏳ Waiting for assistant response..."
+                    ),
                 "#d39e00"
             );
 
             return;
         }
-
-        const text = normalizeText(
-            assistant.innerText ||
-                assistant.textContent ||
-                ""
-        );
 
         if (text !== cycle.lastText) {
             cycle.lastText = text;
@@ -1609,11 +1836,8 @@
             return;
         }
 
-        const finalUiSeen = hasFinalUi(turn);
-
         if (
             !cycle.sawStop &&
-            !finalUiSeen &&
             stableFor <
                 CONFIG.FAST_RESPONSE_FALLBACK_MS
         ) {
