@@ -156,7 +156,9 @@ The next useful evolution would be extracting the workflow configuration from th
 
 The runner now includes a small floating management panel.
 
-It can be dragged around the page and minimized. Its position and minimized state are persisted in browser local storage.
+It can be dragged around the page, minimized, scrolled internally and resized from its lower-left resize handle. Position, size and minimized state are persisted in browser local storage.
+
+The default panel size is intentionally compact so it does not cover most of the conversation. The header remains outside the scrolling body, while the controls and metrics scroll inside the panel when needed.
 
 The panel exposes current, DOM-observable chat metrics:
 
