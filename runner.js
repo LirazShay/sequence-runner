@@ -1731,6 +1731,7 @@
             getAssistantText(turn);
 
         if (
+            !stopButton &&
             finalUiSeen &&
             text
         ) {
