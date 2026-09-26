@@ -197,3 +197,54 @@ __sequenceRunner.getMetrics()
 A future feature may detect that a conversation is becoming too long, ask the current chat to produce a continuation/handoff prompt, open a fresh chat, transfer that handoff prompt, and resume the sequence there.
 
 This is intentionally deferred. It should be designed separately because it introduces navigation, state transfer, recovery and cross-chat correctness concerns.
+
+
+## Start modes
+
+The runner no longer has to assume that the task was already described earlier in the conversation.
+
+The control panel offers two start modes:
+
+- **Existing task/context** — preserves the original behavior. The first runner prompt only installs the step-by-step continuation/completion contract and asks the assistant to continue.
+- **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation and completion contract, then asks the assistant to begin the first step.
+
+The runner waits for an explicit Start action from the panel. It does not automatically send the first prompt merely because the script was loaded.
+
+Equivalent API calls:
+
+```js
+__sequenceRunner.startExistingContext()
+__sequenceRunner.startWithTask("...")
+```
+
+
+## Intermediate messages
+
+A free-form user message can be injected into an active sequence without breaking the one-send/one-completed-turn invariant.
+
+The panel supports:
+
+- **Send at the next safe boundary** — queue the message for the first point at which the current assistant response has completed.
+- **Send after N responses** — queue the message for the boundary reached after N additional runner-managed assistant responses complete.
+
+The current assistant response is never interrupted.
+
+If a queued message becomes due at the same boundary where the assistant emits the normal completion marker, the queued manual message takes precedence. This allows the user to update the task or completion goal before the runner stops.
+
+The explicit step-limit safety guard still has higher priority: if the configured step limit has been reached, the runner stops instead of sending another message.
+
+Multiple intermediate messages may be queued. They are processed in target-order and then insertion-order.
+
+Examples:
+
+```js
+// At the next safe response boundary:
+__sequenceRunner.queueMessage("עדכון למשימה...", 0)
+
+// After 3 additional completed responses:
+__sequenceRunner.queueMessage("שנה את נקודת הסיום ל...", 3)
+
+__sequenceRunner.clearQueuedMessages()
+```
+
+Intermediate-message responses count as runner-managed completed responses and therefore contribute to chat growth metrics and step limits.
