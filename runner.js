@@ -1,4 +1,4 @@
-// Sequence Runner v3
+// Sequence Runner v3.1
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Click the status badge to stop manually.
 
@@ -12,7 +12,8 @@
         DONE_KEYWORD: "סיימתי",
         STABLE_MS: 900,
         FAST_RESPONSE_FALLBACK_MS: 2500,
-        TURN_TIMEOUT_MS: 120000,
+        LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
+        LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
     });
@@ -75,6 +76,8 @@
     let cycleSeq = 0;
     let continuationCount = 0;
     let currentCycle = null;
+    let lastStatusMessage = null;
+    let lastStatusColor = null;
 
     function nowIso() {
         return new Date().toISOString();
@@ -104,8 +107,19 @@
             return;
         }
 
+        const resolvedColor = color || "#333";
+
+        if (
+            lastStatusMessage === message &&
+            lastStatusColor === resolvedColor
+        ) {
+            return;
+        }
+
+        lastStatusMessage = message;
+        lastStatusColor = resolvedColor;
         statusDiv.textContent = message;
-        statusDiv.style.backgroundColor = color || "#333";
+        statusDiv.style.backgroundColor = resolvedColor;
     }
 
     function setState(next, message, color) {
@@ -224,7 +238,13 @@
         const started = Date.now();
         const step = stepMs || 50;
 
-        while (!stopped && Date.now() - started < timeoutMs) {
+        while (
+            !stopped &&
+            (
+                timeoutMs == null ||
+                Date.now() - started < timeoutMs
+            )
+        ) {
             try {
                 const value = predicate();
 
@@ -237,6 +257,39 @@
         }
 
         return null;
+    }
+
+    function getLongWaitStatus(baseMessage, startedAt, tracker, scope) {
+        const elapsedMs = Date.now() - startedAt;
+
+        if (elapsedMs < CONFIG.LONG_WAIT_NOTICE_AFTER_MS) {
+            return baseMessage;
+        }
+
+        const minutes = Math.max(
+            1,
+            Math.floor(elapsedMs / 60000)
+        );
+
+        const noticeBucket = Math.floor(
+            (elapsedMs - CONFIG.LONG_WAIT_NOTICE_AFTER_MS) /
+                CONFIG.LONG_WAIT_NOTICE_EVERY_MS
+        );
+
+        if (
+            tracker &&
+            tracker.longWaitNoticeBucket !== noticeBucket
+        ) {
+            tracker.longWaitNoticeBucket = noticeBucket;
+
+            record("long-wait", {
+                scope,
+                elapsedMs,
+                minutes
+            });
+        }
+
+        return baseMessage + " (" + minutes + " min)";
     }
 
     function clearComposer(composer) {
@@ -482,6 +535,7 @@
             sawStop: false,
             lastText: null,
             lastTextChangedAt: 0,
+            longWaitNoticeBucket: -1,
             processed: false
         };
 
@@ -571,15 +625,14 @@
             return;
         }
 
-        if (
-            Date.now() - cycle.sentAt >
-            CONFIG.TURN_TIMEOUT_MS
-        ) {
-            fail(
-                "Timed out waiting for ChatGPT response."
+        const waitingStatus = function (baseMessage) {
+            return getLongWaitStatus(
+                baseMessage,
+                cycle.sentAt,
+                cycle,
+                "response"
             );
-            return;
-        }
+        };
 
         const stopButton = getStopButton();
 
@@ -606,15 +659,15 @@
                         ? "GENERATING"
                         : "WAITING_FOR_RESPONSE",
                     stopButton
-                        ? "✍️ ChatGPT is generating..."
-                        : "⏳ Waiting for assistant response...",
+                        ? waitingStatus("✍️ ChatGPT is generating...")
+                        : waitingStatus("⏳ Waiting for assistant response..."),
                     "#d39e00"
                 );
             } else {
                 if (stopButton) {
                     setState(
                         "GENERATING",
-                        "✍️ ChatGPT is generating...",
+                        waitingStatus("✍️ ChatGPT is generating..."),
                         "#d39e00"
                     );
                 }
@@ -637,8 +690,8 @@
                     ? "GENERATING"
                     : "WAITING_FOR_RESPONSE",
                 stopButton
-                    ? "✍️ ChatGPT is generating..."
-                    : "⏳ Waiting for assistant response...",
+                    ? waitingStatus("✍️ ChatGPT is generating...")
+                    : waitingStatus("⏳ Waiting for assistant response..."),
                 "#d39e00"
             );
 
@@ -664,7 +717,7 @@
         if (stopButton) {
             setState(
                 "GENERATING",
-                "✍️ ChatGPT is generating...",
+                waitingStatus("✍️ ChatGPT is generating..."),
                 "#d39e00"
             );
 
@@ -674,7 +727,7 @@
         if (!text) {
             setState(
                 "WAITING_FOR_RESPONSE",
-                "⏳ Waiting for assistant response...",
+                waitingStatus("⏳ Waiting for assistant response..."),
                 "#d39e00"
             );
 
@@ -687,7 +740,7 @@
         if (stableFor < CONFIG.STABLE_MS) {
             setState(
                 "WAITING_FOR_STABLE_RESPONSE",
-                "⏳ Finalizing response...",
+                waitingStatus("⏳ Finalizing response..."),
                 "#d39e00"
             );
 
@@ -704,7 +757,7 @@
         ) {
             setState(
                 "WAITING_FOR_STABLE_RESPONSE",
-                "⏳ Confirming response completion...",
+                waitingStatus("⏳ Confirming response completion..."),
                 "#d39e00"
             );
 
@@ -766,24 +819,33 @@
         );
 
         if (getStopButton()) {
+            const idleWait = {
+                longWaitNoticeBucket: -1
+            };
+
+            const idleStartedAt = Date.now();
+
             setState(
                 "WAITING_FOR_IDLE",
                 "⏳ Waiting for current ChatGPT response to finish...",
                 "#d39e00"
             );
 
-            const idle = await waitUntil(
-                function () {
-                    return !getStopButton();
-                },
-                CONFIG.TURN_TIMEOUT_MS,
-                100
-            );
-
-            if (!idle && getStopButton()) {
-                fail(
-                    "Timed out waiting for ChatGPT to become idle."
+            while (!stopped && getStopButton()) {
+                updateStatus(
+                    getLongWaitStatus(
+                        "⏳ Waiting for current ChatGPT response to finish...",
+                        idleStartedAt,
+                        idleWait,
+                        "initial-idle"
+                    ),
+                    "#d39e00"
                 );
+
+                await sleep(1000);
+            }
+
+            if (stopped) {
                 return;
             }
         }
