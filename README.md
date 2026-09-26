@@ -84,7 +84,9 @@ START
 - The Stop button is treated as a strong generation signal, but very fast responses can still complete without requiring that Stop was observed.
 - Assistant text must remain stable for a short period before it is evaluated.
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
-- A timeout stops the runner instead of retrying indefinitely.
+- Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
+- After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.
+- The user can always stop manually by clicking the status badge.
 - Existing composer text is never overwritten automatically.
 - Text insertion is verified before Send is clicked.
 - Clicking the floating status badge stops the runner manually.
