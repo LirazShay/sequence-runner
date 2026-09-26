@@ -1,4 +1,4 @@
-// Sequence Runner v3.1
+// Sequence Runner v3.2
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Click the status badge to stop manually.
 
@@ -14,6 +14,7 @@
         FAST_RESPONSE_FALLBACK_MS: 2500,
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
+        UI_REFRESH_MS: 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
     });
@@ -38,31 +39,71 @@
         } catch (_) {}
     }
 
-    let statusDiv = document.getElementById("chatgpt-auto-status");
+    const PANEL_STORAGE_KEYS = Object.freeze({
+        position: "sequence-runner-panel-position",
+        minimized: "sequence-runner-panel-minimized"
+    });
 
-    if (!statusDiv) {
-        statusDiv = document.createElement("div");
-        statusDiv.id = "chatgpt-auto-status";
-        statusDiv.style.cssText = [
-            "position:fixed",
-            "top:20px",
-            "right:20px",
-            "max-width:360px",
-            "padding:10px 14px",
-            "background:#333",
-            "color:#fff",
-            "border-radius:8px",
-            "z-index:2147483647",
-            "font-family:system-ui,sans-serif",
-            "font-size:14px",
-            "line-height:1.35",
-            "box-shadow:0 4px 12px rgba(0,0,0,.3)",
-            "cursor:pointer",
-            "user-select:none"
-        ].join(";");
+    document.getElementById("chatgpt-auto-status")?.remove();
+    document.getElementById("sequence-runner-panel")?.remove();
 
-        document.body.appendChild(statusDiv);
-    }
+    const panel = document.createElement("section");
+    panel.id = "sequence-runner-panel";
+    panel.dir = "rtl";
+    panel.style.cssText = [
+        "position:fixed",
+        "top:20px",
+        "right:20px",
+        "width:320px",
+        "max-width:calc(100vw - 24px)",
+        "background:#111827",
+        "color:#f9fafb",
+        "border:1px solid rgba(255,255,255,.14)",
+        "border-radius:12px",
+        "z-index:2147483647",
+        "font-family:system-ui,sans-serif",
+        "font-size:13px",
+        "line-height:1.35",
+        "box-shadow:0 10px 30px rgba(0,0,0,.32)",
+        "overflow:hidden"
+    ].join(";");
+
+    panel.innerHTML = [
+        '<div data-role="header" style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:#0b1220;cursor:move;user-select:none">',
+        '<strong style="flex:1;font-size:13px">Sequence Runner</strong>',
+        '<button type="button" data-action="minimize" title="מזער" style="border:0;background:#243044;color:#fff;border-radius:6px;width:28px;height:26px;cursor:pointer;font-size:16px;line-height:1">−</button>',
+        '</div>',
+        '<div data-role="body">',
+        '<div data-role="status" style="padding:9px 10px;background:#17a2b8;color:#fff;font-weight:600">🚀 Starting...</div>',
+        '<div style="padding:10px">',
+        '<div data-role="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px"></div>',
+        '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px">',
+        '<div style="font-weight:700;margin-bottom:7px">גבול ריצה</div>',
+        '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">',
+        '<input data-input="absolute-limit" type="number" min="1" step="1" placeholder="עצור בשלב #" style="min-width:0;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px">',
+        '<button type="button" data-action="set-absolute-limit" style="border:0;background:#2563eb;color:#fff;border-radius:6px;padding:6px 9px;cursor:pointer">קבע</button>',
+        '</div>',
+        '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">',
+        '<input data-input="relative-limit" type="number" min="1" step="1" placeholder="עצור בעוד N" style="min-width:0;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px">',
+        '<button type="button" data-action="set-relative-limit" style="border:0;background:#2563eb;color:#fff;border-radius:6px;padding:6px 9px;cursor:pointer">קבע</button>',
+        '</div>',
+        '<div data-role="limit-status" style="font-size:12px;color:#cbd5e1;margin-bottom:8px">ללא גבול — נעצר רק בסיום המוגדר.</div>',
+        '<div style="display:flex;gap:6px">',
+        '<button type="button" data-action="clear-limit" style="flex:1;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:6px;padding:6px;cursor:pointer">בטל גבול</button>',
+        '<button type="button" data-action="stop" style="flex:1;border:0;background:#b91c1c;color:#fff;border-radius:6px;padding:6px;cursor:pointer">עצור</button>',
+        '</div>',
+        '<div style="margin-top:7px;font-size:11px;color:#94a3b8">הגבול נבדק רק אחרי שתשובת ChatGPT הנוכחית הושלמה; הוא לא חותך תשובה באמצע.</div>',
+        '</div>',
+        '</div>',
+        '</div>'
+    ].join("");
+
+    document.body.appendChild(panel);
+
+    const statusDiv = panel.querySelector('[data-role="status"]');
+    const panelBody = panel.querySelector('[data-role="body"]');
+    const metricsDiv = panel.querySelector('[data-role="metrics"]');
+    const limitStatusDiv = panel.querySelector('[data-role="limit-status"]');
 
     const log = [];
     const processedTurnKeys = new Set();
@@ -71,11 +112,16 @@
     let stopped = false;
     let observer = null;
     let watchdog = null;
+    let uiTimer = null;
     let evaluateScheduled = false;
     let sendLocked = false;
     let cycleSeq = 0;
     let continuationCount = 0;
+    let completedResponseCount = 0;
+    let stopAfterCompletedResponses = null;
+    let stopLimitMode = null;
     let currentCycle = null;
+    const runnerStartedAt = Date.now();
     let lastStatusMessage = null;
     let lastStatusColor = null;
 
@@ -292,6 +338,434 @@
         return baseMessage + " (" + minutes + " min)";
     }
 
+    function formatInteger(value) {
+        return new Intl.NumberFormat().format(value || 0);
+    }
+
+    function formatDuration(ms) {
+        const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+            return hours + ":" +
+                String(minutes).padStart(2, "0") + ":" +
+                String(seconds).padStart(2, "0");
+        }
+
+        return minutes + ":" + String(seconds).padStart(2, "0");
+    }
+
+    function getChatMetrics() {
+        const userMessages = [
+            ...document.querySelectorAll(SELECTORS.userMessage)
+        ];
+
+        const assistantMessages = [
+            ...document.querySelectorAll(SELECTORS.assistantMessage)
+        ];
+
+        const characterCount = userMessages
+            .concat(assistantMessages)
+            .reduce(function (sum, element) {
+                return sum + normalizeText(
+                    element.innerText ||
+                    element.textContent ||
+                    ""
+                ).length;
+            }, 0);
+
+        return {
+            turns: getTurns().length,
+            userMessages: userMessages.length,
+            assistantMessages: assistantMessages.length,
+            totalMessages:
+                userMessages.length +
+                assistantMessages.length,
+            characterCount
+        };
+    }
+
+    function renderPanel() {
+        if (!panel.isConnected) {
+            return;
+        }
+
+        const chat = getChatMetrics();
+
+        metricsDiv.innerHTML = [
+            '<span style="color:#94a3b8">הודעות בצ׳אט</span><strong>' +
+                formatInteger(chat.totalMessages) + '</strong>',
+            '<span style="color:#94a3b8">Turns</span><strong>' +
+                formatInteger(chat.turns) + '</strong>',
+            '<span style="color:#94a3b8">User / Assistant</span><strong>' +
+                formatInteger(chat.userMessages) + ' / ' +
+                formatInteger(chat.assistantMessages) + '</strong>',
+            '<span style="color:#94a3b8">אורך טקסט</span><strong>' +
+                formatInteger(chat.characterCount) + ' תווים</strong>',
+            '<span style="color:#94a3b8">תגובות Runner</span><strong>' +
+                formatInteger(completedResponseCount) + '</strong>',
+            '<span style="color:#94a3b8">נשלחו ע״י Runner</span><strong>' +
+                formatInteger(cycleSeq) + '</strong>',
+            '<span style="color:#94a3b8">זמן ריצה</span><strong>' +
+                formatDuration(Date.now() - runnerStartedAt) + '</strong>',
+            '<span style="color:#94a3b8">State</span><strong style="font-size:11px;word-break:break-word">' +
+                state + '</strong>'
+        ].join("");
+
+        if (stopAfterCompletedResponses == null) {
+            limitStatusDiv.textContent =
+                "ללא גבול — נעצר רק בסיום המוגדר.";
+        } else {
+            const remaining = Math.max(
+                0,
+                stopAfterCompletedResponses -
+                    completedResponseCount
+            );
+
+            limitStatusDiv.textContent =
+                "גבול פעיל: עצירה אחרי תגובת Runner #" +
+                stopAfterCompletedResponses +
+                " (" + remaining + " נותרו).";
+        }
+
+        const stopButton = panel.querySelector(
+            '[data-action="stop"]'
+        );
+
+        if (stopButton) {
+            stopButton.disabled = stopped;
+            stopButton.style.opacity = stopped ? ".55" : "1";
+            stopButton.style.cursor =
+                stopped ? "default" : "pointer";
+        }
+    }
+
+    function parsePositiveInteger(value) {
+        const parsed = Number(value);
+
+        if (
+            !Number.isInteger(parsed) ||
+            parsed <= 0
+        ) {
+            return null;
+        }
+
+        return parsed;
+    }
+
+    function applyStepLimit(target, mode) {
+        stopAfterCompletedResponses = target;
+        stopLimitMode = mode;
+
+        record("step-limit-set", {
+            target,
+            mode,
+            completedResponseCount
+        });
+
+        renderPanel();
+
+        if (
+            !stopped &&
+            completedResponseCount >= target &&
+            (!currentCycle || currentCycle.processed)
+        ) {
+            stop("step-limit", false);
+        }
+    }
+
+    function clearStepLimit() {
+        stopAfterCompletedResponses = null;
+        stopLimitMode = null;
+
+        record("step-limit-cleared", {
+            completedResponseCount
+        });
+
+        renderPanel();
+    }
+
+    function shouldStopForStepLimit() {
+        return (
+            stopAfterCompletedResponses != null &&
+            completedResponseCount >=
+                stopAfterCompletedResponses
+        );
+    }
+
+    function restorePanelPreferences() {
+        try {
+            const rawPosition = localStorage.getItem(
+                PANEL_STORAGE_KEYS.position
+            );
+
+            if (rawPosition) {
+                const position = JSON.parse(rawPosition);
+
+                if (
+                    Number.isFinite(position.left) &&
+                    Number.isFinite(position.top)
+                ) {
+                    panel.style.left = Math.max(
+                        0,
+                        Math.min(
+                            position.left,
+                            window.innerWidth -
+                                panel.offsetWidth
+                        )
+                    ) + "px";
+
+                    panel.style.top = Math.max(
+                        0,
+                        Math.min(
+                            position.top,
+                            window.innerHeight - 40
+                        )
+                    ) + "px";
+
+                    panel.style.right = "auto";
+                }
+            }
+
+            const minimized =
+                localStorage.getItem(
+                    PANEL_STORAGE_KEYS.minimized
+                ) === "1";
+
+            panelBody.style.display =
+                minimized ? "none" : "";
+
+            const minimizeButton =
+                panel.querySelector(
+                    '[data-action="minimize"]'
+                );
+
+            if (minimizeButton) {
+                minimizeButton.textContent =
+                    minimized ? "+" : "−";
+                minimizeButton.title =
+                    minimized ? "פתח" : "מזער";
+            }
+        } catch (_) {}
+    }
+
+    function setupPanelInteractions() {
+        const header = panel.querySelector(
+            '[data-role="header"]'
+        );
+
+        const minimizeButton = panel.querySelector(
+            '[data-action="minimize"]'
+        );
+
+        minimizeButton?.addEventListener(
+            "click",
+            function (event) {
+                event.stopPropagation();
+
+                const minimized =
+                    panelBody.style.display !== "none";
+
+                panelBody.style.display =
+                    minimized ? "none" : "";
+
+                minimizeButton.textContent =
+                    minimized ? "+" : "−";
+
+                minimizeButton.title =
+                    minimized ? "פתח" : "מזער";
+
+                try {
+                    localStorage.setItem(
+                        PANEL_STORAGE_KEYS.minimized,
+                        minimized ? "1" : "0"
+                    );
+                } catch (_) {}
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="stop"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                stop("manual", false);
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="set-absolute-limit"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                const input = panel.querySelector(
+                    '[data-input="absolute-limit"]'
+                );
+
+                const value = parsePositiveInteger(
+                    input?.value
+                );
+
+                if (value == null) {
+                    updateStatus(
+                        "⚠️ יש להזין מספר שלם וחיובי.",
+                        "#b45309"
+                    );
+                    return;
+                }
+
+                applyStepLimit(value, "absolute");
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="set-relative-limit"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                const input = panel.querySelector(
+                    '[data-input="relative-limit"]'
+                );
+
+                const value = parsePositiveInteger(
+                    input?.value
+                );
+
+                if (value == null) {
+                    updateStatus(
+                        "⚠️ יש להזין מספר שלם וחיובי.",
+                        "#b45309"
+                    );
+                    return;
+                }
+
+                applyStepLimit(
+                    completedResponseCount + value,
+                    "relative"
+                );
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="clear-limit"]'
+        )?.addEventListener(
+            "click",
+            clearStepLimit
+        );
+
+        if (!header) {
+            return;
+        }
+
+        let drag = null;
+
+        header.addEventListener(
+            "pointerdown",
+            function (event) {
+                if (
+                    event.button !== 0 ||
+                    event.target.closest("button,input")
+                ) {
+                    return;
+                }
+
+                const rect =
+                    panel.getBoundingClientRect();
+
+                drag = {
+                    pointerId: event.pointerId,
+                    offsetX:
+                        event.clientX - rect.left,
+                    offsetY:
+                        event.clientY - rect.top
+                };
+
+                header.setPointerCapture(
+                    event.pointerId
+                );
+            }
+        );
+
+        header.addEventListener(
+            "pointermove",
+            function (event) {
+                if (
+                    !drag ||
+                    drag.pointerId !== event.pointerId
+                ) {
+                    return;
+                }
+
+                const maxLeft = Math.max(
+                    0,
+                    window.innerWidth -
+                        panel.offsetWidth
+                );
+
+                const maxTop = Math.max(
+                    0,
+                    window.innerHeight - 40
+                );
+
+                const left = Math.max(
+                    0,
+                    Math.min(
+                        event.clientX - drag.offsetX,
+                        maxLeft
+                    )
+                );
+
+                const top = Math.max(
+                    0,
+                    Math.min(
+                        event.clientY - drag.offsetY,
+                        maxTop
+                    )
+                );
+
+                panel.style.left = left + "px";
+                panel.style.top = top + "px";
+                panel.style.right = "auto";
+            }
+        );
+
+        const finishDrag = function (event) {
+            if (
+                !drag ||
+                drag.pointerId !== event.pointerId
+            ) {
+                return;
+            }
+
+            try {
+                const rect =
+                    panel.getBoundingClientRect();
+
+                localStorage.setItem(
+                    PANEL_STORAGE_KEYS.position,
+                    JSON.stringify({
+                        left: rect.left,
+                        top: rect.top
+                    })
+                );
+            } catch (_) {}
+
+            drag = null;
+        };
+
+        header.addEventListener(
+            "pointerup",
+            finishDrag
+        );
+
+        header.addEventListener(
+            "pointercancel",
+            finishDrag
+        );
+    }
+
     function clearComposer(composer) {
         composer.focus();
 
@@ -394,7 +868,12 @@
             clearInterval(watchdog);
         }
 
+        if (uiTimer) {
+            clearInterval(uiTimer);
+        }
+
         watchdog = null;
+        uiTimer = null;
         evaluateScheduled = false;
     }
 
@@ -418,20 +897,28 @@
         });
 
         if (completedSuccessfully) {
-            updateStatus("✅ Process complete!", "#28a745");
-
-            setTimeout(function () {
-                statusDiv?.remove();
-            }, 6000);
+            updateStatus(
+                "✅ התהליך הסתיים לפי תנאי הסיום.",
+                "#15803d"
+            );
+        } else if (stopReason === "step-limit") {
+            updateStatus(
+                "⏹ נעצר בגבול שהוגדר אחרי " +
+                    completedResponseCount +
+                    " תגובות Runner.",
+                "#7c3aed"
+            );
         } else if (stopReason === "manual") {
-            updateStatus("🛑 Stopped manually.", "#dc3545");
-
-            setTimeout(function () {
-                statusDiv?.remove();
-            }, 3500);
+            updateStatus(
+                "🛑 נעצר ידנית.",
+                "#b91c1c"
+            );
         } else if (stopReason === "replaced") {
-            statusDiv?.remove();
+            panel.remove();
+            return;
         }
+
+        renderPanel();
     }
 
     function fail(message, error) {
@@ -568,6 +1055,8 @@
         cycle.processed = true;
         processedTurnKeys.add(cycle.turnKey);
         sendLocked = false;
+        completedResponseCount++;
+        renderPanel();
 
         record("response-complete", {
             id: cycle.id,
@@ -578,6 +1067,11 @@
 
         if (isDone(text)) {
             stop("done-keyword", true);
+            return;
+        }
+
+        if (shouldStopForStepLimit()) {
+            stop("step-limit", false);
             return;
         }
 
@@ -818,6 +1312,11 @@
             CONFIG.WATCHDOG_MS
         );
 
+        uiTimer = setInterval(
+            renderPanel,
+            CONFIG.UI_REFRESH_MS
+        );
+
         if (getStopButton()) {
             const idleWait = {
                 longWaitNoticeBucket: -1
@@ -860,12 +1359,9 @@
         }
     }
 
-    statusDiv.title =
-        "Click to stop Sequence Runner";
-
-    statusDiv.onclick = function () {
-        stop("manual", false);
-    };
+    setupPanelInteractions();
+    restorePanelPreferences();
+    renderPanel();
 
     window.__sequenceRunner = Object.freeze({
         stop,
@@ -875,6 +1371,10 @@
                 stopped,
                 sendLocked,
                 continuationCount,
+                completedResponseCount,
+                stopAfterCompletedResponses,
+                stopLimitMode,
+                chatMetrics: getChatMetrics(),
                 currentCycle: currentCycle
                     ? Object.assign(
                           {},
@@ -887,6 +1387,57 @@
         getLog: function () {
             return [...log];
         },
+        getMetrics: function () {
+            return {
+                runner: {
+                    sent: cycleSeq,
+                    completed:
+                        completedResponseCount,
+                    continuationCount,
+                    runtimeMs:
+                        Date.now() -
+                        runnerStartedAt
+                },
+                chat: getChatMetrics(),
+                stepLimit: {
+                    target:
+                        stopAfterCompletedResponses,
+                    mode: stopLimitMode
+                }
+            };
+        },
+        setAbsoluteStepLimit: function (value) {
+            const parsed =
+                parsePositiveInteger(value);
+
+            if (parsed == null) {
+                throw new Error(
+                    "Step limit must be a positive integer."
+                );
+            }
+
+            applyStepLimit(
+                parsed,
+                "absolute"
+            );
+        },
+        setRelativeStepLimit: function (value) {
+            const parsed =
+                parsePositiveInteger(value);
+
+            if (parsed == null) {
+                throw new Error(
+                    "Relative step limit must be a positive integer."
+                );
+            }
+
+            applyStepLimit(
+                completedResponseCount +
+                    parsed,
+                "relative"
+            );
+        },
+        clearStepLimit,
         isDone
     });
 
