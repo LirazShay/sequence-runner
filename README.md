@@ -248,3 +248,26 @@ __sequenceRunner.clearQueuedMessages()
 ```
 
 Intermediate-message responses count as runner-managed completed responses and therefore contribute to chat growth metrics and step limits.
+
+
+## Response completion detection
+
+Completion detection must prefer explicit final-turn UI over timing heuristics.
+
+For the current tested ChatGPT DOM:
+
+- `button[aria-label="Stop"]` means generation is still active.
+- `button[aria-label="Regenerate response"]` inside the current turn, with no active Stop button, is treated as authoritative evidence that the assistant response has completed.
+- Stable-text timing remains only a fallback for fast or alternate UI cases where the final action is not observed.
+
+Assistant text lookup is resilient to wrapper changes. The runner first uses:
+
+```js
+[data-markdown-text-style="assistant-message"]
+```
+
+and can fall back through the assistant search unit and selection-message containers.
+
+The runner also re-resolves the current turn from its pre-send turn snapshot on every evaluation. This protects against React/virtualization replacing or duplicating a turn DOM node while preserving the same conversation turn.
+
+A completed turn must never remain indefinitely in `WAITING_FOR_RESPONSE` merely because one preferred assistant wrapper was not found.
