@@ -1,6 +1,6 @@
 // Sequence Runner v3.3
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
-// Click the status badge to stop manually.
+// Use the floating control panel to configure, monitor and stop the run.
 
 (function () {
     "use strict";
