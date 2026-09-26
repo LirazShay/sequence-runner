@@ -58,16 +58,26 @@ Keep it:
 
 ### `runner.min.js`
 
-Generated compact one-line distribution.
+Generated compact one-line **bookmarklet-ready** distribution.
 
-Do not edit manually.
+It must always begin exactly with:
+
+```text
+javascript:
+```
+
+Do not edit it manually.
 
 Whenever `runner.js` changes:
 
-1. regenerate the compact build from the readable source,
-2. validate JavaScript syntax,
-3. verify the compact file still represents the same behavior,
-4. keep it one line.
+1. regenerate the compact payload from the readable source,
+2. validate the JavaScript payload syntax before prefixing it,
+3. prefix the final output with `javascript:`,
+4. verify the compact file still represents the same behavior,
+5. keep the entire file on exactly one line,
+6. verify the committed file starts with `javascript:`.
+
+This is a permanent build invariant. Never commit a `runner.min.js` that lacks the `javascript:` prefix.
 
 ### `README.md`
 
