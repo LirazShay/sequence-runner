@@ -207,6 +207,16 @@ After programmatic insertion, verify the actual composer contents before clickin
 
 Always preserve an immediate manual stop path.
 
+### Management panel and run limits
+
+The current runner includes a draggable/minimizable management panel.
+
+The panel reports operational chat/run metrics and allows a safe step limit to be configured either as an absolute runner-response number or as N additional responses from the current point.
+
+A step limit is a boundary between completed responses. Never implement it by interrupting a response that is currently generating.
+
+Changing or clearing the limit during a run must not create duplicate sends or violate the one-send/one-turn invariant.
+
 ## Prompt insertion
 
 The tested UI accepted both:
@@ -325,6 +335,7 @@ Potential extensions already identified:
 - automated tests
 - userscript/browser extension packaging
 - small UI for workflow configuration
+- automatic chat rollover / continuation handoff (deferred; design separately before implementation)
 
 Do not build all of these at once.
 
