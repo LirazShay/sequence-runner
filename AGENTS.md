@@ -1,0 +1,386 @@
+# AGENTS.md — Sequence Runner
+
+This file is the entry point for AI agents working on this repository.
+
+## Start here
+
+Before changing code:
+
+1. Read this file.
+2. Read `README.md`.
+3. Read `runner.js` as the source of truth.
+4. Treat `runner.min.js` as generated distribution output, not as an editable source.
+5. Inspect the current GitHub state before relying on prior chat context.
+
+Default conversation language with the project owner: Hebrew.
+Code, identifiers and code comments: English.
+
+## Project purpose
+
+`sequence-runner` is a browser-side state-machine runner that advances a ChatGPT conversation through repeated steps.
+
+Current behavior:
+
+1. Send an initial prompt once.
+2. Wait for a new assistant turn.
+3. Wait until that response is actually complete.
+4. Inspect only that newly completed assistant response.
+5. If the completion condition is met, stop.
+6. Otherwise send one continuation prompt.
+7. Repeat.
+
+Current workflow configuration:
+
+- Continuation prompt: `תמשיך לשלב הבא`
+- Completion marker: `סיימתי`
+- Completion is accepted only at the end of the newly completed assistant response.
+
+The longer-term product direction is a generic sequence/workflow runner, not a script hard-coded forever to one Hebrew prompt.
+
+## Source of truth
+
+Repository: `LirazShay/sequence-runner`
+Primary branch: `main`
+
+### `runner.js`
+
+Canonical implementation.
+
+All logic changes happen here first.
+
+Keep it:
+
+- readable
+- deterministic
+- easy to debug
+- state-machine based
+- simple unless added complexity has clear value
+
+### `runner.min.js`
+
+Generated compact one-line distribution.
+
+Do not edit manually.
+
+Whenever `runner.js` changes:
+
+1. regenerate the compact build from the readable source,
+2. validate JavaScript syntax,
+3. verify the compact file still represents the same behavior,
+4. keep it one line.
+
+### `README.md`
+
+Product and technical overview.
+
+Update it when architecture, behavior, selectors, debugging procedures or build rules materially change.
+
+## Core architecture
+
+The intended state flow is:
+
+```text
+START
+  -> SEND
+  -> WAIT_FOR_NEW_TURN
+  -> WAIT_FOR_ASSISTANT
+  -> WAIT_FOR_RESPONSE_COMPLETE
+  -> EVALUATE
+       -> DONE: STOP
+       -> NOT DONE: SEND NEXT
+```
+
+Core invariant:
+
+> One sent prompt must correspond to one newly completed assistant turn before another prompt may be sent.
+
+Do not replace this with timer-based logic such as "if ChatGPT looks idle, send again".
+
+## Verified DOM integration
+
+The current implementation was designed after an actual DOM probe of the ChatGPT web UI.
+
+Selectors observed during that probe:
+
+Turn:
+```js
+[data-turn-key]
+```
+
+User message:
+```js
+[data-user-message-bubble="true"]
+```
+
+Assistant message body:
+```js
+[data-markdown-text-style="assistant-message"]
+```
+
+Composer:
+```js
+[contenteditable="true"][data-composer-markdown]
+```
+
+Send:
+```js
+button[aria-label="Send"]
+```
+
+Generation signal:
+```js
+button[aria-label="Stop"]
+```
+
+Selectors that did NOT work in the tested UI and must not be reintroduced without a fresh DOM probe:
+
+```js
+[data-message-author-role="assistant"]
+[data-is-streaming="true"]
+```
+
+If ChatGPT changes its DOM, investigate and verify the new structure instead of guessing.
+
+## Reliability rules
+
+### Send lock
+
+Never allow duplicate sends for the same cycle.
+
+### New-turn isolation
+
+Before sending, capture the currently known turn keys.
+
+After sending, process only a new turn created for that sent prompt.
+
+### New assistant response only
+
+Never search the whole chat history for the completion marker.
+
+Evaluate only the assistant body inside the current new turn.
+
+### Process once
+
+A turn that has already been processed must never trigger another continuation.
+
+### Completion semantics
+
+Do not use:
+
+```js
+text.includes("סיימתי")
+```
+
+because text such as:
+
+```text
+עדיין לא סיימתי
+```
+
+must not stop the workflow.
+
+Current completion semantics inspect the final non-empty line of the current assistant response.
+
+### Streaming / completion
+
+The Stop button is a strong signal that generation is active, but very fast responses may complete without the runner observing it.
+
+The assistant text must be stable for a short period before evaluation.
+
+### Timeout
+
+If no valid response arrives within the configured timeout, stop safely.
+
+Do not implement infinite automatic retries.
+
+### Composer safety
+
+Never overwrite text already typed by the user.
+
+After programmatic insertion, verify the actual composer contents before clicking Send.
+
+### Manual stop
+
+Always preserve an immediate manual stop path.
+
+## Prompt insertion
+
+The tested UI accepted both:
+
+- synthetic paste
+- `document.execCommand("insertText")`
+
+The implementation may use verified fallbacks, but the critical requirement is:
+
+```text
+requested text == actual composer text
+```
+
+before Send is clicked.
+
+Do not use direct `innerHTML` mutation as the primary mechanism.
+
+## Debugging API
+
+While active:
+
+```js
+__sequenceRunner.getState()
+```
+
+returns the current state.
+
+```js
+__sequenceRunner.getLog()
+```
+
+returns the internal event log.
+
+```js
+__sequenceRunner.stop()
+```
+
+stops the runner manually.
+
+A compatibility alias currently also exists:
+
+```js
+__chatgptAutoContinueV3
+```
+
+When debugging a failure:
+
+1. inspect state,
+2. inspect log,
+3. identify the exact state where progress stopped,
+4. determine the root cause,
+5. fix the correct layer instead of adding arbitrary delays or broad retries.
+
+## Development principles
+
+Prefer KISS.
+
+Do not add frameworks or dependencies without clear value.
+
+Before a meaningful change, decide whether the issue belongs to:
+
+- workflow configuration,
+- state-machine engine,
+- ChatGPT DOM adapter,
+- completion strategy,
+- build/distribution.
+
+Change the narrowest correct layer.
+
+Prefer deterministic behavior over heuristics.
+
+## Planned architectural direction
+
+A likely future split is:
+
+```text
+Engine
+Config
+DOM Adapter
+Completion Strategy
+```
+
+Possible future structure:
+
+```text
+src/
+  engine.js
+  chatgpt-adapter.js
+  completion.js
+  config.js
+
+dist/
+  runner.js
+  runner.min.js
+  bookmarklet.txt
+```
+
+Do not refactor just for aesthetics. Refactor when the separation produces concrete maintainability, testing or product value.
+
+## Future product directions
+
+Potential extensions already identified:
+
+- configurable workflows
+- presets/templates
+- configurable first prompt
+- configurable continuation prompt
+- completion strategies: exact last line, regex, keyword, max iterations, custom predicate
+- `maxSteps` safety guard
+- pause/resume
+- controlled retry
+- session recovery
+- exportable diagnostics
+- automatic build
+- bookmarklet output
+- automated tests
+- userscript/browser extension packaging
+- small UI for workflow configuration
+
+Do not build all of these at once.
+
+## Testing philosophy
+
+Test public behavior, not implementation details.
+
+Important behavioral cases include:
+
+- initial prompt is sent once
+- one completed non-final response causes exactly one continuation
+- "עדיין לא סיימתי" does not stop the workflow
+- a response whose final completion line is "סיימתי" stops the workflow
+- many DOM mutations still cause only one send
+- timeout stops safely
+- existing composer text is never overwritten
+- a processed turn cannot be processed twice
+
+Where possible, keep state-machine tests separate from real ChatGPT DOM integration tests.
+
+## Build discipline
+
+For code changes:
+
+1. modify the readable source,
+2. validate syntax,
+3. run relevant tests if available,
+4. regenerate compact output,
+5. verify compact output is one line,
+6. verify readable and compact behavior do not diverge,
+7. update documentation when needed,
+8. commit only after verification.
+
+## GitHub working rules
+
+When GitHub tools are available, work directly in the repository instead of asking the user to manually copy changes.
+
+Before overwriting an existing file:
+
+- fetch the latest version,
+- use its current SHA,
+- do not overwrite unreviewed changes.
+
+After writing:
+
+- fetch the affected file again,
+- verify the expected content is present.
+
+## New-chat behavior
+
+If the user says things like:
+
+- "continue with sequence-runner"
+- "improve the runner"
+- "there is a bug in the runner"
+- "continue from where we were"
+
+do not ask them to re-explain the whole project.
+
+Read the repository first and continue from its current state.
+
+If the user asks only for planning, do not start implementation.
+If the user asks for implementation, make the change in the repository when tools allow it.
