@@ -47,6 +47,8 @@ Primary branch: `main`
 
 Canonical implementation.
 
+Runtime versioning has one source of truth: the `VERSION` constant in this file. The floating panel and public debug API must read that value rather than duplicating a version string elsewhere. When a user-visible runner change warrants a version bump, update `VERSION` here and regenerate `runner.min.js` from the resulting source.
+
 All logic changes happen here first.
 
 Keep it:

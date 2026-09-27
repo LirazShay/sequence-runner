@@ -131,6 +131,14 @@ Light punctuation/Markdown around the final marker is tolerated.
 
 ## Debugging
 
+The panel title shows the exact runtime version. The same value is also available from:
+
+```js
+__sequenceRunner.version
+```
+
+`VERSION` in `runner.js` is the single source of truth for this value and is carried into the bookmarklet distribution.
+
 While the runner is active:
 
 ```js
@@ -387,6 +395,7 @@ Permanent rules:
 - the file starts with `javascript:`
 - the complete file is exactly one line
 - the executable payload is generated from `runner.js`
+- the runtime `VERSION` value comes from `runner.js` and must remain identical in the compact artifact
 - the compact file is never edited independently
 - JavaScript syntax is validated on the payload before the `javascript:` prefix is added
 

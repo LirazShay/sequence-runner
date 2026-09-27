@@ -1,9 +1,11 @@
-// Sequence Runner v3.13
+// Sequence Runner
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
 (function () {
     "use strict";
+
+    const VERSION = "3.14";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -90,7 +92,7 @@
 
     panel.innerHTML = [
         '<div data-role="header" style="display:flex;align-items:center;gap:8px;padding:8px 9px;background:#0b1220;cursor:move;user-select:none;flex:0 0 auto">',
-        '<strong style="flex:1;font-size:13px">Sequence Runner</strong>',
+        '<strong style="flex:1;font-size:13px">Sequence Runner v' + VERSION + '</strong>',
         '<button type="button" data-action="minimize" title="מזער" style="border:0;background:#243044;color:#fff;border-radius:6px;width:28px;height:26px;cursor:pointer;font-size:16px;line-height:1">−</button>',
         '</div>',
         '<div data-role="body" style="min-height:0;flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable">',
@@ -3770,6 +3772,7 @@
     renderPanel();
 
     window.__sequenceRunner = Object.freeze({
+        version: VERSION,
         stop,
         getState: function () {
             return {
