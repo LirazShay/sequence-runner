@@ -42,7 +42,7 @@ It opens the door to:
 - Execution logs and diagnostics.
 - Future packaging as a small browser extension or userscript instead of a raw bookmarklet/script.
 
-The key product principle is that one sent instruction must correspond to one newly completed assistant turn before another instruction can be sent.
+The key product principle is that automatic runner traffic preserves one sent instruction per newly completed assistant turn. The only exception is an explicit user-triggered **Send now** action, which may supersede the currently tracked cycle and send another message while ChatGPT is still responding.
 
 ## Technical design
 
@@ -227,9 +227,10 @@ A free-form user message can be injected into an active sequence without breakin
 The panel supports:
 
 - **Send at the next safe boundary** — queue the message for the first point at which the current assistant response has completed.
+- **Send now — even during an active response** — insert and send immediately through ChatGPT's composer without clicking Stop.
 - **Send after N responses** — queue the message for the boundary reached after N additional runner-managed assistant responses complete.
 
-The current assistant response is never interrupted.
+The safe-boundary modes never interrupt the current assistant response. The explicit immediate-send mode deliberately allows the user to supersede the runner's currently tracked cycle while ChatGPT is still responding. The runner does not click Stop; it tracks the newly sent message as the active cycle instead.
 
 If a queued message becomes due at the same boundary where the assistant emits the normal completion marker, the queued manual message takes precedence. This allows the user to update the task or completion goal before the runner stops.
 
@@ -266,6 +267,28 @@ __sequenceRunner.clearQueuedMessages()
 ```
 
 Intermediate-message responses count as runner-managed completed responses and therefore contribute to chat growth metrics and step limits.
+
+### Recovery from user text or manual chat activity
+
+The runner never overwrites text that the user has typed into ChatGPT's composer.
+
+If an automatic continuation becomes due while:
+
+- the composer already contains user text, or
+- ChatGPT is busy with another response,
+
+the runner no longer treats that situation as a fatal error. Instead it stores the pending automatic send and enters a recoverable waiting state.
+
+The runner automatically retries when the composer is empty and ChatGPT is idle. The panel also exposes **Continue automation** as a manual recovery action.
+
+This means a user can type or send a message manually while the runner is active without permanently killing the sequence.
+
+Relevant API:
+
+```js
+__sequenceRunner.sendMessageImmediately("עדכון מיידי...")
+__sequenceRunner.resume()
+```
 
 
 ## Response completion detection
