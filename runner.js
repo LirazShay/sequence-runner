@@ -1,4 +1,4 @@
-// Sequence Runner v3.8
+// Sequence Runner v3.9
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -107,6 +107,7 @@
         '<div style="margin-top:6px;font-size:11px;color:#94a3b8">במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה יחד עם כללי ההמשך והסיום.</div>',
         '</div>',
         '<div data-role="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px"></div>',
+        '<button type="button" data-action="restart-run" style="display:none;width:100%;border:0;background:#0f766e;color:#fff;border-radius:6px;padding:8px;cursor:pointer;font-weight:700;margin-bottom:10px">התחל ריצה חדשה</button>',
         '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-bottom:10px">',
         '<div style="font-weight:700;margin-bottom:7px">הודעת ביניים</div>',
         '<textarea data-input="injection-text" rows="3" placeholder="טקסט חופשי לשליחה בתוך התהליך..." style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
@@ -159,6 +160,7 @@
     const injectionListDiv = panel.querySelector('[data-role="injection-list"]');
     const injectionManagerButton = panel.querySelector('[data-action="toggle-injection-manager"]');
     const resumeButton = panel.querySelector('[data-action="resume-run"]');
+    const restartButton = panel.querySelector('[data-action="restart-run"]');
     const resizeHandle = panel.querySelector('[data-role="resize-handle"]');
 
     const log = [];
@@ -1072,6 +1074,16 @@
             stopButton.style.opacity = stopped ? ".55" : "1";
             stopButton.style.cursor =
                 stopped ? "default" : "pointer";
+        }
+
+        if (restartButton) {
+            restartButton.style.display =
+                stopped ? "" : "none";
+            restartButton.disabled = !stopped;
+            restartButton.style.opacity =
+                stopped ? "1" : ".55";
+            restartButton.style.cursor =
+                stopped ? "pointer" : "default";
         }
     }
 
@@ -2027,6 +2039,20 @@
             }
         );
 
+        restartButton?.addEventListener(
+            "click",
+            function () {
+                restartRunner().catch(
+                    function (err) {
+                        updateStatus(
+                            "🔴 " + err.message,
+                            "#b91c1c"
+                        );
+                    }
+                );
+            }
+        );
+
         panel.querySelector(
             '[data-action="set-absolute-limit"]'
         )?.addEventListener(
@@ -2443,6 +2469,92 @@
         evaluateScheduled = false;
     }
 
+    function resetPanelForNewRun() {
+        const taskMode = panel.querySelector(
+            '[data-input="task-mode"]'
+        );
+
+        const taskText = panel.querySelector(
+            '[data-input="task-text"]'
+        );
+
+        const inputs = [
+            '[data-input="injection-text"]',
+            '[data-input="injection-after"]',
+            '[data-input="absolute-limit"]',
+            '[data-input="relative-limit"]'
+        ];
+
+        if (taskMode) {
+            taskMode.value = "existing";
+        }
+
+        if (taskText) {
+            taskText.value = "";
+            taskText.style.display = "none";
+        }
+
+        inputs.forEach(function (selector) {
+            const input =
+                panel.querySelector(selector);
+
+            if (input) {
+                input.value = "";
+            }
+        });
+
+        if (injectionManagerDiv) {
+            injectionManagerDiv.style.display =
+                "none";
+        }
+    }
+
+    async function restartRunner() {
+        if (!stopped) {
+            throw new Error(
+                "Stop the current run before starting a new one."
+            );
+        }
+
+        cleanup();
+
+        processedTurnKeys.clear();
+        injectionQueue.length = 0;
+        log.length = 0;
+
+        state = "INIT";
+        stopped = false;
+        evaluateScheduled = false;
+        sendLocked = false;
+        cycleSeq = 0;
+        continuationCount = 0;
+        completedResponseCount = 0;
+        stopAfterCompletedResponses = null;
+        stopLimitMode = null;
+        currentCycle = null;
+        runStarted = false;
+        selectedTaskMode = "existing";
+        selectedTaskText = "";
+        runnerStartedAt = null;
+        injectionSeq = 0;
+        injectionSentCount = 0;
+        immediateSendLocked = false;
+        pendingAutoSend = null;
+        pendingAutoSendLocked = false;
+        handoffInProgress = false;
+        handoffCount = 0;
+        lastStatusMessage = null;
+        lastStatusColor = null;
+
+        resetPanelForNewRun();
+        renderInjectionManager();
+        renderPanel();
+
+        record("runner-restarted");
+
+        await initialize();
+    }
+
     function stop(reason, success) {
         const stopReason = reason || "manual";
         const completedSuccessfully = !!success;
@@ -2505,6 +2617,7 @@
 
         updateStatus("🔴 " + message, "#dc3545");
         console.error("[SequenceRunner]", message, error || "");
+        renderPanel();
     }
 
     function findNewTurn(beforeKeys, expectedPrompt) {
@@ -3728,6 +3841,8 @@
             );
         },
         clearStepLimit,
+        restart:
+            restartRunner,
         startExistingContext: function () {
             return beginRun(
                 "existing",
