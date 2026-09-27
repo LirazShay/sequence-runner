@@ -607,6 +607,8 @@
             '<span style="color:#94a3b8">הודעות ביניים</span><strong>' +
                 formatInteger(injectionSentCount) + ' / ' +
                 formatInteger(injectionQueue.length) + ' ממתינות</strong>',
+            '<span style="color:#94a3b8">תשובות שנקטעו</span><strong>' +
+                formatInteger(interruptedResponseCount) + '</strong>',
             '<span style="color:#94a3b8">זמן ריצה</span><strong>' +
                 (runnerStartedAt == null
                     ? "—"
