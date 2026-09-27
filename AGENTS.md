@@ -324,6 +324,8 @@ A step limit is a boundary between completed responses. Never implement it by in
 
 Changing or clearing the limit during a run must not create duplicate sends or violate the one-send/one-turn invariant.
 
+After any terminal state that leaves the panel mounted — successful completion, manual/limit stop, or error — the runner must be reusable without reinjecting the script. A new-run reset must clean run-specific state and restart observers/timers exactly once while preserving panel layout preferences. Do not carry processed-turn keys, queued messages, pending sends, counters or limits into the next run.
+
 ## Prompt insertion
 
 The tested UI accepted both:
@@ -477,6 +479,9 @@ Important behavioral cases include:
 - long-running responses keep waiting without duplicate sends or automatic timeout failure
 - existing composer text is never overwritten
 - a processed turn cannot be processed twice
+- after DONE, STOPPED or ERROR, the user can start a fresh run without reloading the script
+- restarting clears run-specific counters, limits, queues, pending sends and processed-turn tracking
+- restarting does not duplicate observers/watchdogs or erase persisted panel layout preferences
 
 Where possible, keep state-machine tests separate from real ChatGPT DOM integration tests.
 
