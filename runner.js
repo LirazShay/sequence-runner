@@ -1,4 +1,4 @@
-// Sequence Runner v3.7
+// Sequence Runner v3.8
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -6,10 +6,13 @@
     "use strict";
 
     const CONFIG = Object.freeze({
-        FIRST_PROMPT:
-            "בכל פעם שאכתוב 'תמשיך לשלב הבא', תתקדם שלב אחד. כשתסיים את כל השלבים לחלוטין, תכתוב בסוף התשובה את המילה 'סיימתי' אך לפני כן אל תשתמש במילה הזו כלל. עכשיו, תמשיך לשלב הבא.",
         REGULAR_PROMPT: "תמשיך לשלב הבא",
         DONE_KEYWORD: "סיימתי",
+        HANDOFF_OUTER_START: "[[SEQUENCE_RUNNER_NEW_CHAT]]",
+        HANDOFF_OUTER_END: "[[/SEQUENCE_RUNNER_NEW_CHAT]]",
+        HANDOFF_PROMPT_START: "[[NEXT_CHAT_PROMPT]]",
+        HANDOFF_PROMPT_END: "[[/NEXT_CHAT_PROMPT]]",
+        NAVIGATION_TIMEOUT_MS: 15000,
         STABLE_MS: 900,
         FAST_RESPONSE_FALLBACK_MS: 2500,
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
@@ -183,6 +186,8 @@
     let immediateSendLocked = false;
     let pendingAutoSend = null;
     let pendingAutoSendLocked = false;
+    let handoffInProgress = false;
+    let handoffCount = 0;
     const injectionQueue = [];
     let lastStatusMessage = null;
     let lastStatusColor = null;
@@ -276,9 +281,39 @@
         ).test(lastLine);
     }
 
+    function getRunnerControlLines(startInstruction) {
+        return [
+            "בכל פעם שאכתוב 'תמשיך לשלב הבא', תתקדם שלב אחד.",
+            "",
+            "כשתסיים את כל השלבים לחלוטין, תכתוב בסוף התשובה את המילה 'סיימתי' אך לפני כן אל תשתמש במילה הזו כלל.",
+            "",
+            "אם במהלך העבודה תגיע למצב שבו עדיף להמשיך את העבודה בצ'אט חדש, אל תסיים את התהליך ואל תכתוב 'סיימתי'.",
+            "במקום זאת, בסוף התשובה כתוב בדיוק במבנה הבא:",
+            "",
+            CONFIG.HANDOFF_OUTER_START,
+            "בשלב זה מומלץ לעבור לצ'אט חדש.",
+            CONFIG.HANDOFF_PROMPT_START,
+            "כאן כתוב את הפרומפט המלא והעצמאי שצריך לשלוח כהודעה הראשונה בצ'אט החדש. הוא חייב לכלול את כל המידע הדרוש כדי להמשיך בדיוק מהמקום הנכון בלי להסתמך על היסטוריית הצ'אט הנוכחי.",
+            CONFIG.HANDOFF_PROMPT_END,
+            CONFIG.HANDOFF_OUTER_END,
+            "",
+            "אל תשתמש בסימוני המעבר האלה בשום מצב אחר ואל תזכיר אותם אלא כאשר באמת מומלץ לעבור לצ'אט חדש.",
+            "כאשר אין צורך לעבור לצ'אט חדש, המשך לעבוד כרגיל לפי 'תמשיך לשלב הבא'.",
+            "",
+            startInstruction
+        ];
+    }
+
     function buildFirstPrompt(mode, taskText) {
+        const startInstruction =
+            mode === "new"
+                ? "עכשיו, התחל לבצע את המשימה והתקדם לשלב הראשון."
+                : "עכשיו, תמשיך לשלב הבא.";
+
         if (mode !== "new") {
-            return CONFIG.FIRST_PROMPT;
+            return getRunnerControlLines(
+                startInstruction
+            ).join("\n");
         }
 
         const task = normalizeText(taskText);
@@ -293,10 +328,137 @@
             "זו המשימה שעליך לבצע כעת:",
             task,
             "",
-            "בכל פעם שאכתוב 'תמשיך לשלב הבא', תתקדם שלב אחד.",
-            "כשתסיים את כל השלבים לחלוטין, תכתוב בסוף התשובה את המילה 'סיימתי' אך לפני כן אל תשתמש במילה הזו כלל.",
-            "עכשיו, התחל לבצע את המשימה והתקדם לשלב הראשון."
+            ...getRunnerControlLines(
+                startInstruction
+            )
         ].join("\n");
+    }
+
+    function buildHandoffPrompt(nextChatPrompt) {
+        const prompt =
+            normalizeText(nextChatPrompt);
+
+        if (!prompt) {
+            throw new Error(
+                "The next-chat prompt cannot be empty."
+            );
+        }
+
+        return [
+            prompt,
+            "",
+            ...getRunnerControlLines(
+                "עכשיו, המשך את העבודה לפי הפרומפט לעיל והתקדם לשלב המתאים."
+            )
+        ].join("\n");
+    }
+
+    function parseHandoff(text) {
+        const normalized =
+            normalizeText(text);
+
+        const markers = [
+            CONFIG.HANDOFF_OUTER_START,
+            CONFIG.HANDOFF_OUTER_END,
+            CONFIG.HANDOFF_PROMPT_START,
+            CONFIG.HANDOFF_PROMPT_END
+        ];
+
+        const requested = markers.some(
+            function (marker) {
+                return normalized.includes(
+                    marker
+                );
+            }
+        );
+
+        if (!requested) {
+            return {
+                requested: false,
+                nextChatPrompt: null,
+                error: null
+            };
+        }
+
+        if (
+            !normalized.endsWith(
+                CONFIG.HANDOFF_OUTER_END
+            )
+        ) {
+            return {
+                requested: true,
+                nextChatPrompt: null,
+                error: "The handoff block must be the final content in the assistant response."
+            };
+        }
+
+        const outerStartIndex =
+            normalized.lastIndexOf(
+                CONFIG.HANDOFF_OUTER_START
+            );
+
+        const outerEndIndex =
+            normalized.lastIndexOf(
+                CONFIG.HANDOFF_OUTER_END
+            );
+
+        const promptStartIndex =
+            normalized.indexOf(
+                CONFIG.HANDOFF_PROMPT_START,
+                outerStartIndex +
+                    CONFIG.HANDOFF_OUTER_START.length
+            );
+
+        const promptEndIndex =
+            normalized.indexOf(
+                CONFIG.HANDOFF_PROMPT_END,
+                promptStartIndex +
+                    CONFIG.HANDOFF_PROMPT_START.length
+            );
+
+        if (
+            outerStartIndex < 0 ||
+            outerEndIndex < 0 ||
+            promptStartIndex < 0 ||
+            promptEndIndex < 0 ||
+            !(
+                outerStartIndex <
+                promptStartIndex &&
+                promptStartIndex <
+                promptEndIndex &&
+                promptEndIndex <
+                outerEndIndex
+            )
+        ) {
+            return {
+                requested: true,
+                nextChatPrompt: null,
+                error: "The handoff markers are missing or out of order."
+            };
+        }
+
+        const nextChatPrompt =
+            normalizeText(
+                normalized.slice(
+                    promptStartIndex +
+                        CONFIG.HANDOFF_PROMPT_START.length,
+                    promptEndIndex
+                )
+            );
+
+        if (!nextChatPrompt) {
+            return {
+                requested: true,
+                nextChatPrompt: null,
+                error: "The next-chat prompt is empty."
+            };
+        }
+
+        return {
+            requested: true,
+            nextChatPrompt,
+            error: null
+        };
     }
 
     function getTurns() {
@@ -385,6 +547,193 @@
             document.querySelector(SELECTORS.stopButton) ||
             document.querySelector('button[data-testid="stop-button"]')
         );
+    }
+
+    function isElementVisible(element) {
+        if (!element || !element.isConnected) {
+            return false;
+        }
+
+        const rect =
+            element.getBoundingClientRect();
+
+        const style =
+            getComputedStyle(element);
+
+        return (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== "hidden" &&
+            style.display !== "none"
+        );
+    }
+
+    function isProjectChatPath() {
+        return /^\/g\/g-p-[^/]+\/c\/[^/]+/.test(
+            location.pathname
+        );
+    }
+
+    function getCurrentProjectContext() {
+        if (!isProjectChatPath()) {
+            return null;
+        }
+
+        const breadcrumb =
+            document.querySelector(
+                'nav[aria-label="Breadcrumb"] a[href$="/project"]'
+            );
+
+        const name = normalizeText(
+            breadcrumb?.innerText ||
+            breadcrumb?.textContent ||
+            ""
+        );
+
+        if (!name) {
+            throw new Error(
+                "Current chat is inside a Project, but the Project breadcrumb could not be identified."
+            );
+        }
+
+        return {
+            name,
+            href:
+                breadcrumb?.getAttribute(
+                    "href"
+                ) || null
+        };
+    }
+
+    function findNewChatTarget() {
+        const project =
+            getCurrentProjectContext();
+
+        if (project) {
+            const expectedLabel =
+                "New chat in " +
+                project.name;
+
+            const button = [
+                ...document.querySelectorAll(
+                    'button[aria-label^="New chat in "]'
+                )
+            ].find(function (candidate) {
+                return (
+                    candidate.getAttribute(
+                        "aria-label"
+                    ) === expectedLabel &&
+                    isElementVisible(candidate)
+                );
+            });
+
+            if (!button) {
+                throw new Error(
+                    "The New Chat button for the current Project was not found."
+                );
+            }
+
+            return {
+                button,
+                kind: "project",
+                project
+            };
+        }
+
+        const button = [
+            ...document.querySelectorAll(
+                'button[aria-label="New chat"]'
+            )
+        ].find(isElementVisible);
+
+        if (!button) {
+            throw new Error(
+                "The visible New Chat button was not found."
+            );
+        }
+
+        return {
+            button,
+            kind: "regular",
+            project: null
+        };
+    }
+
+    async function openFreshChatForHandoff() {
+        const target =
+            findNewChatTarget();
+
+        const oldUrl =
+            location.href;
+
+        const oldComposer =
+            getComposer();
+
+        target.button.click();
+
+        const newUrl = await waitUntil(
+            function () {
+                return location.href !==
+                    oldUrl
+                    ? location.href
+                    : null;
+            },
+            CONFIG.NAVIGATION_TIMEOUT_MS,
+            50
+        );
+
+        if (!newUrl) {
+            throw new Error(
+                "New Chat navigation did not complete."
+            );
+        }
+
+        await sleep(150);
+
+        const composer = await waitUntil(
+            function () {
+                const candidate =
+                    getComposer();
+
+                if (
+                    !candidate ||
+                    !isElementVisible(
+                        candidate
+                    ) ||
+                    getStopButton()
+                ) {
+                    return null;
+                }
+
+                const text = normalizeText(
+                    candidate.innerText ||
+                    candidate.textContent ||
+                    candidate.value ||
+                    ""
+                );
+
+                return text
+                    ? null
+                    : candidate;
+            },
+            CONFIG.NAVIGATION_TIMEOUT_MS,
+            50
+        );
+
+        if (!composer) {
+            throw new Error(
+                "The composer for the new chat did not become ready."
+            );
+        }
+
+        return {
+            kind: target.kind,
+            project: target.project,
+            oldUrl,
+            newUrl,
+            composerReused:
+                composer === oldComposer
+        };
     }
 
     function getAssistantMessage(turn) {
@@ -607,6 +956,11 @@
                 formatInteger(completedResponseCount) + '</strong>',
             '<span style="color:#94a3b8">נשלחו ע״י Runner</span><strong>' +
                 formatInteger(cycleSeq) + '</strong>',
+            '<span style="color:#94a3b8">מעברי צ׳אט</span><strong>' +
+                formatInteger(handoffCount) +
+                (handoffInProgress
+                    ? ' (בתהליך)'
+                    : '') + '</strong>',
             '<span style="color:#94a3b8">הודעות ביניים</span><strong>' +
                 formatInteger(injectionSentCount) + ' / ' +
                 formatInteger(injectionQueue.length) + ' ממתינות</strong>',
@@ -2551,10 +2905,14 @@
                 ? "➡️ Sending first prompt..."
                 : label === "injection"
                     ? "📝 Sending intermediate message..."
-                    : "➡️ Sending continuation #" + (continuationCount + 1) + "...",
+                    : label === "handoff"
+                        ? "🔁 Sending handoff prompt in the new chat..."
+                        : "➡️ Sending continuation #" + (continuationCount + 1) + "...",
             label === "injection"
                 ? "#7c3aed"
-                : "#0056b3"
+                : label === "handoff"
+                    ? "#0369a1"
+                    : "#0056b3"
         );
 
         const beforeKeys = new Set(
@@ -2640,6 +2998,90 @@
         return true;
     }
 
+    async function performChatHandoff(
+        nextChatPrompt
+    ) {
+        if (stopped) {
+            return false;
+        }
+
+        if (handoffInProgress) {
+            throw new Error(
+                "A chat handoff is already in progress."
+            );
+        }
+
+        handoffInProgress = true;
+        renderPanel();
+
+        const outgoingPrompt =
+            buildHandoffPrompt(
+                nextChatPrompt
+            );
+
+        try {
+            setState(
+                "OPENING_NEW_CHAT",
+                "🔄 פותח צ'אט חדש ומעביר אליו את המשימה...",
+                "#0369a1"
+            );
+
+            record("handoff-started", {
+                fromUrl: location.href,
+                promptLength:
+                    nextChatPrompt.length
+            });
+
+            const navigation =
+                await openFreshChatForHandoff();
+
+            record(
+                "handoff-navigation-complete",
+                {
+                    kind:
+                        navigation.kind,
+                    projectName:
+                        navigation.project?.name ||
+                        null,
+                    fromUrl:
+                        navigation.oldUrl,
+                    toUrl:
+                        navigation.newUrl,
+                    composerReused:
+                        navigation.composerReused
+                }
+            );
+
+            const sent =
+                await sendPrompt(
+                    outgoingPrompt,
+                    "handoff",
+                    {
+                        deferWhenBlocked:
+                            false
+                    }
+                );
+
+            if (!sent) {
+                throw new Error(
+                    "The handoff prompt was not sent."
+                );
+            }
+
+            handoffCount++;
+
+            record("handoff-sent", {
+                count: handoffCount,
+                url: location.href
+            });
+
+            return true;
+        } finally {
+            handoffInProgress = false;
+            renderPanel();
+        }
+    }
+
     function completeCycle(cycle, text) {
         if (
             stopped ||
@@ -2655,11 +3097,22 @@
         completedResponseCount++;
         renderPanel();
 
+        const responseDone =
+            isDone(text);
+
+        const handoff =
+            parseHandoff(text);
+
         record("response-complete", {
             id: cycle.id,
             turnKey: cycle.turnKey,
             textLength: text.length,
-            done: isDone(text)
+            done: responseDone,
+            handoffRequested:
+                handoff.requested,
+            handoffValid:
+                handoff.requested &&
+                !handoff.error
         });
 
         if (shouldStopForStepLimit()) {
@@ -2667,15 +3120,37 @@
             return;
         }
 
-        const responseDone = isDone(text);
-        const dueInjection = takeDueInjection();
+        if (
+            handoff.requested &&
+            handoff.error
+        ) {
+            fail(
+                "Invalid new-chat handoff response: " +
+                    handoff.error
+            );
+            return;
+        }
+
+        const dueInjection =
+            takeDueInjection();
 
         if (dueInjection) {
             if (responseDone) {
                 record(
                     "completion-marker-deferred-for-injection",
                     {
-                        injectionId: dueInjection.id
+                        injectionId:
+                            dueInjection.id
+                    }
+                );
+            }
+
+            if (handoff.requested) {
+                record(
+                    "handoff-deferred-for-injection",
+                    {
+                        injectionId:
+                            dueInjection.id
                     }
                 );
             }
@@ -2703,6 +3178,39 @@
                     "injection"
                 ).catch(function (err) {
                     fail(err.message, err);
+                });
+            }, CONFIG.CONTINUE_DELAY_MS);
+
+            return;
+        }
+
+        if (handoff.requested) {
+            setState(
+                "READY_TO_HANDOFF",
+                "🔁 התגובה ביקשה להמשיך בצ'אט חדש...",
+                "#0369a1"
+            );
+
+            const completedCycle = cycle;
+
+            setTimeout(function () {
+                if (
+                    stopped ||
+                    currentCycle !==
+                        completedCycle
+                ) {
+                    return;
+                }
+
+                currentCycle = null;
+
+                performChatHandoff(
+                    handoff.nextChatPrompt
+                ).catch(function (err) {
+                    fail(
+                        err.message,
+                        err
+                    );
                 });
             }, CONFIG.CONTINUE_DELAY_MS);
 
@@ -3133,6 +3641,8 @@
                     injectionQueue.length,
                 injectionSentCount,
                 immediateSendLocked,
+                handoffInProgress,
+                handoffCount,
                 pendingAutoSend: pendingAutoSend
                     ? {
                           label:
@@ -3172,6 +3682,9 @@
                         injectionSentCount,
                     intermediateQueued:
                         injectionQueue.length,
+                    handoffs:
+                        handoffCount,
+                    handoffInProgress,
                     pendingAutoSend:
                         !!pendingAutoSend
                 },
@@ -3268,6 +3781,7 @@
             moveQueuedInjection,
         clearQueuedMessages:
             clearQueuedInjections,
+        parseHandoff,
         isDone
     });
 
