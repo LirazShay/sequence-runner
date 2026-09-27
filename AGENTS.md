@@ -102,9 +102,11 @@ START
 
 Core invariant:
 
-> One sent prompt must correspond to one newly completed assistant turn before another prompt may be sent.
+> Automatic runner sends must preserve one sent prompt per newly completed assistant turn.
 
-Do not replace this with timer-based logic such as "if ChatGPT looks idle, send again".
+The sole intentional exception is an explicit user-triggered immediate intermediate message. That action may supersede the current tracked cycle and send through the composer while ChatGPT is still responding. It must never click Stop.
+
+Do not replace the normal workflow with timer-based logic such as "if ChatGPT looks idle, send again".
 
 ## Verified DOM integration
 
@@ -242,18 +244,23 @@ Loading the script should prepare the runner and panel, not automatically send t
 
 The runner supports free-form messages inserted during an active sequence.
 
-Intermediate messages are queued for response boundaries; never interrupt an assistant response that is still generating.
+Intermediate messages normally queue for response boundaries and never interrupt an assistant response that is still generating.
 
-A message may be queued for:
+A message may be:
 
-- the next safe boundary
-- N additional completed runner-managed responses from the current point
+- queued for the next safe boundary
+- queued for N additional completed runner-managed responses from the current point
+- explicitly sent immediately by the user while ChatGPT is still responding
+
+Immediate send is a user-only override. It must use the normal composer/send path, must not click Stop, must supersede the old tracked cycle safely, and must track the new sent message as the active cycle.
 
 When an intermediate message is due at the same boundary as the ordinary completion marker, the user-queued message takes precedence so the user can revise the task or endpoint.
 
 The explicit step-limit safety guard has higher priority than queued intermediate messages.
 
 Queued messages must preserve the one-send/one-completed-turn invariant and must not cause duplicate continuation sends.
+
+If an automatic send is blocked because the composer contains user text or ChatGPT is busy with external/manual activity, do not fail the runner. Preserve the pending automatic send, enter a recoverable waiting state, and resume only after the composer is empty and ChatGPT is idle. Never overwrite user text.
 
 The management panel must expose the queued intermediate messages, not only a count. Users must be able to edit message text, change the relative schedule, delete individual messages and reorder messages that share the same target boundary. Reordering must not silently override scheduling semantics across different target boundaries.
 
@@ -401,6 +408,10 @@ Important behavioral cases include:
 - new-task mode embeds the supplied task in the first prompt
 - existing-context mode preserves the original first-prompt behavior
 - an intermediate message queued for "now" waits until the current response is complete
+- an explicit immediate intermediate message can be sent while a response is active without clicking Stop
+- an immediate message supersedes the old tracked cycle without allowing a duplicate automatic continuation
+- user text in the composer pauses an automatic send instead of causing a fatal error
+- the pending automatic send resumes after the composer becomes empty and ChatGPT is idle
 - an intermediate message scheduled after N responses is injected at the correct boundary
 - a due intermediate message takes precedence over the ordinary completion marker
 - the explicit step limit takes precedence over intermediate messages

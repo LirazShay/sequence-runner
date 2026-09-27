@@ -1,4 +1,4 @@
-// Sequence Runner v3.6
+// Sequence Runner v3.7
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -108,6 +108,7 @@
         '<div style="font-weight:700;margin-bottom:7px">הודעת ביניים</div>',
         '<textarea data-input="injection-text" rows="3" placeholder="טקסט חופשי לשליחה בתוך התהליך..." style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
         '<button type="button" data-action="queue-injection-now" style="width:100%;border:0;background:#7c3aed;color:#fff;border-radius:6px;padding:7px;cursor:pointer;margin-bottom:6px">שלח בהזדמנות הבטוחה הקרובה</button>',
+        '<button type="button" data-action="send-injection-immediately" style="width:100%;border:1px solid #f59e0b;background:#78350f;color:#fff;border-radius:6px;padding:7px;cursor:pointer;margin-bottom:6px;font-weight:700">שלח עכשיו — גם בזמן תשובה פעילה</button>',
         '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px">',
         '<input data-input="injection-after" type="number" min="1" step="1" placeholder="בעוד N תגובות" style="min-width:0;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px">',
         '<button type="button" data-action="queue-injection-after" style="border:0;background:#7c3aed;color:#fff;border-radius:6px;padding:6px 9px;cursor:pointer">תזמן</button>',
@@ -119,7 +120,7 @@
         '<button type="button" data-action="clear-injections" style="width:100%;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:6px;padding:6px;cursor:pointer">נקה תור הודעות ביניים</button>',
         '<div style="margin-top:6px;font-size:10px;color:#94a3b8">החצים משנים סדר רק בין הודעות שמיועדות לאותו גבול. שינוי “בעוד N” מעדכן את מועד השליחה יחסית למצב הנוכחי.</div>',
         '</div>',
-        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">“עכשיו” פירושו בגבול הבטוח הקרוב: לעולם לא קוטעים תשובת Assistant באמצע. תזמון “בעוד N” נספר לפי תגובות Assistant שמושלמות מרגע התזמון.</div>',
+        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">“בהזדמנות הבטוחה הקרובה” מחכה לסיום התשובה. “שלח עכשיו” שולח דרך ה־composer גם בזמן תשובה פעילה, בלי ללחוץ Stop. תזמון “בעוד N” נספר לפי תגובות Assistant שמושלמות מרגע התזמון.</div>',
         '</div>',
         '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px">',
         '<div style="font-weight:700;margin-bottom:7px">גבול ריצה</div>',
@@ -132,6 +133,7 @@
         '<button type="button" data-action="set-relative-limit" style="border:0;background:#2563eb;color:#fff;border-radius:6px;padding:6px 9px;cursor:pointer">קבע</button>',
         '</div>',
         '<div data-role="limit-status" style="font-size:12px;color:#cbd5e1;margin-bottom:8px">ללא גבול — נעצר רק בסיום המוגדר.</div>',
+        '<button type="button" data-action="resume-run" style="display:none;width:100%;border:1px solid #0891b2;background:#164e63;color:#fff;border-radius:6px;padding:6px;cursor:pointer;margin-bottom:6px;font-weight:700">המשך אוטומציה</button>',
         '<div style="display:flex;gap:6px">',
         '<button type="button" data-action="clear-limit" style="flex:1;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:6px;padding:6px;cursor:pointer">בטל גבול</button>',
         '<button type="button" data-action="stop" style="flex:1;border:0;background:#b91c1c;color:#fff;border-radius:6px;padding:6px;cursor:pointer">עצור</button>',
@@ -153,6 +155,7 @@
     const injectionManagerDiv = panel.querySelector('[data-role="injection-manager"]');
     const injectionListDiv = panel.querySelector('[data-role="injection-list"]');
     const injectionManagerButton = panel.querySelector('[data-action="toggle-injection-manager"]');
+    const resumeButton = panel.querySelector('[data-action="resume-run"]');
     const resizeHandle = panel.querySelector('[data-role="resize-handle"]');
 
     const log = [];
@@ -177,6 +180,9 @@
     let runnerStartedAt = null;
     let injectionSeq = 0;
     let injectionSentCount = 0;
+    let immediateSendLocked = false;
+    let pendingAutoSend = null;
+    let pendingAutoSendLocked = false;
     const injectionQueue = [];
     let lastStatusMessage = null;
     let lastStatusColor = null;
@@ -604,6 +610,10 @@
             '<span style="color:#94a3b8">הודעות ביניים</span><strong>' +
                 formatInteger(injectionSentCount) + ' / ' +
                 formatInteger(injectionQueue.length) + ' ממתינות</strong>',
+            '<span style="color:#94a3b8">שליחה ממתינה</span><strong>' +
+                (pendingAutoSend
+                    ? "כן"
+                    : "לא") + '</strong>',
             '<span style="color:#94a3b8">זמן ריצה</span><strong>' +
                 (runnerStartedAt == null
                     ? "—"
@@ -666,6 +676,37 @@
                 "ניהול הודעות ביניים (" +
                 injectionQueue.length +
                 ")";
+        }
+
+        const immediateButton = panel.querySelector(
+            '[data-action="send-injection-immediately"]'
+        );
+
+        if (immediateButton) {
+            immediateButton.disabled =
+                immediateSendLocked || stopped;
+            immediateButton.style.opacity =
+                immediateButton.disabled
+                    ? ".55"
+                    : "1";
+            immediateButton.style.cursor =
+                immediateButton.disabled
+                    ? "default"
+                    : "pointer";
+        }
+
+        if (resumeButton) {
+            resumeButton.style.display =
+                pendingAutoSend &&
+                !stopped
+                    ? ""
+                    : "none";
+            resumeButton.disabled =
+                pendingAutoSendLocked;
+            resumeButton.style.opacity =
+                pendingAutoSendLocked
+                    ? ".55"
+                    : "1";
         }
 
         const stopButton = panel.querySelector(
@@ -1345,6 +1386,53 @@
         );
 
         panel.querySelector(
+            '[data-action="send-injection-immediately"]'
+        )?.addEventListener(
+            "click",
+            async function () {
+                const input = panel.querySelector(
+                    '[data-input="injection-text"]'
+                );
+
+                try {
+                    await sendImmediateInjection(
+                        input?.value || ""
+                    );
+
+                    if (input) {
+                        input.value = "";
+                    }
+
+                    updateStatus(
+                        "⚡ הודעת הביניים נשלחה מיד.",
+                        "#b45309"
+                    );
+                } catch (err) {
+                    updateStatus(
+                        "🔴 " + err.message,
+                        "#b91c1c"
+                    );
+                }
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="resume-run"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                resumePendingAutoSend(
+                    true
+                ).catch(function (err) {
+                    updateStatus(
+                        "🔴 " + err.message,
+                        "#b91c1c"
+                    );
+                });
+            }
+        );
+
+        panel.querySelector(
             '[data-action="queue-injection-after"]'
         )?.addEventListener(
             "click",
@@ -1915,9 +2003,11 @@
         );
 
         if (existing) {
-            throw new Error(
+            const error = new Error(
                 "Composer is not empty; refusing to overwrite existing text."
             );
+            error.code = "COMPOSER_NOT_EMPTY";
+            throw error;
         }
 
         composer.focus();
@@ -2158,14 +2248,298 @@
         return resolved;
     }
 
-    async function sendPrompt(prompt, label) {
-        if (stopped || sendLocked) {
-            return;
+    function getComposerText() {
+        const composer = getComposer();
+
+        if (!composer) {
+            return "";
+        }
+
+        return normalizeText(
+            composer.innerText ||
+            composer.textContent ||
+            composer.value ||
+            ""
+        );
+    }
+
+    function deferAutoSend(
+        prompt,
+        label,
+        reason
+    ) {
+        pendingAutoSend = {
+            prompt,
+            label,
+            reason,
+            deferredAt: Date.now()
+        };
+
+        sendLocked = false;
+
+        record("auto-send-deferred", {
+            label,
+            reason
+        });
+
+        setState(
+            reason === "composer-occupied"
+                ? "WAITING_FOR_COMPOSER"
+                : "WAITING_FOR_EXTERNAL_ACTIVITY",
+            reason === "composer-occupied"
+                ? "⏸ יש טקסט בתיבת ChatGPT. האוטומציה תמשיך אחרי שהוא יישלח או ינוקה."
+                : "⏸ ממתין לפעילות ChatGPT הנוכחית לפני המשך האוטומציה.",
+            "#b45309"
+        );
+
+        renderPanel();
+    }
+
+    async function resumePendingAutoSend(
+        manual
+    ) {
+        if (
+            stopped ||
+            !pendingAutoSend ||
+            pendingAutoSendLocked ||
+            currentCycle ||
+            sendLocked ||
+            immediateSendLocked
+        ) {
+            return false;
+        }
+
+        if (getComposerText()) {
+            setState(
+                "WAITING_FOR_COMPOSER",
+                manual
+                    ? "⚠️ עדיין יש טקסט בתיבת ChatGPT. שלח או נקה אותו ואז נסה שוב."
+                    : "⏸ יש טקסט בתיבת ChatGPT. האוטומציה תמשיך אחרי שהוא יישלח או ינוקה.",
+                "#b45309"
+            );
+            return false;
         }
 
         if (getStopButton()) {
+            setState(
+                "WAITING_FOR_EXTERNAL_ACTIVITY",
+                manual
+                    ? "⏳ ChatGPT עדיין מגיב. ההמשך יישלח אוטומטית כשהתגובה תסתיים."
+                    : "⏸ ממתין לפעילות ChatGPT הנוכחית לפני המשך האוטומציה.",
+                "#b45309"
+            );
+            return false;
+        }
+
+        pendingAutoSendLocked = true;
+        const pending = pendingAutoSend;
+        pendingAutoSend = null;
+        renderPanel();
+
+        try {
+            const sent = await sendPrompt(
+                pending.prompt,
+                pending.label,
+                {
+                    deferWhenBlocked: true
+                }
+            );
+
+            return !!sent;
+        } finally {
+            pendingAutoSendLocked = false;
+            renderPanel();
+        }
+    }
+
+    async function sendImmediateInjection(text) {
+        const message = normalizeText(text);
+
+        if (!message) {
+            throw new Error(
+                "Intermediate message cannot be empty."
+            );
+        }
+
+        if (stopped) {
+            throw new Error(
+                "Cannot send a message after the runner has stopped."
+            );
+        }
+
+        if (!runStarted) {
+            throw new Error(
+                "Start the runner before sending an immediate intermediate message."
+            );
+        }
+
+        if (immediateSendLocked) {
+            throw new Error(
+                "An immediate message is already being sent."
+            );
+        }
+
+        const composer = getComposer();
+
+        if (!composer) {
+            throw new Error("Composer not found.");
+        }
+
+        if (getComposerText()) {
+            throw new Error(
+                "Composer is not empty; refusing to overwrite existing text."
+            );
+        }
+
+        immediateSendLocked = true;
+        renderPanel();
+
+        try {
+            const beforeKeys = new Set(
+                getTurns().map(getTurnKey)
+            );
+
+            await setComposerText(message);
+
+            const sendButton = await waitUntil(
+                function () {
+                    const button =
+                        getSendButton();
+
+                    return button &&
+                        !button.disabled
+                        ? button
+                        : null;
+                },
+                3000,
+                50
+            );
+
+            if (!sendButton) {
+                throw new Error(
+                    "Send button did not become available while ChatGPT was responding."
+                );
+            }
+
+            const supersededCycle =
+                currentCycle;
+
+            if (supersededCycle) {
+                supersededCycle.processed =
+                    true;
+
+                record(
+                    "cycle-superseded-by-immediate-message",
+                    {
+                        id:
+                            supersededCycle.id,
+                        label:
+                            supersededCycle.label,
+                        turnKey:
+                            supersededCycle.turnKey
+                    }
+                );
+            }
+
+            if (pendingAutoSend) {
+                record(
+                    "pending-auto-send-replaced-by-immediate-message",
+                    {
+                        label:
+                            pendingAutoSend.label,
+                        reason:
+                            pendingAutoSend.reason
+                    }
+                );
+
+                pendingAutoSend = null;
+            }
+
+            sendLocked = true;
+
+            const id = ++cycleSeq;
+
+            currentCycle = {
+                id,
+                label: "injection",
+                prompt: message,
+                beforeKeys,
+                sentAt: Date.now(),
+                turnKey: null,
+                sawStop:
+                    !!getStopButton(),
+                lastText: null,
+                lastTextChangedAt: 0,
+                longWaitNoticeBucket: -1,
+                processed: false
+            };
+
+            record("send", {
+                id,
+                label: "injection",
+                beforeTurnCount:
+                    beforeKeys.size,
+                immediate: true
+            });
+
+            sendButton.click();
+            injectionSentCount++;
+
+            setState(
+                "WAITING_FOR_TURN",
+                "⚡ הודעת ביניים נשלחה מיד; עוקב אחר התגובה החדשה...",
+                "#b45309"
+            );
+
+            renderPanel();
+            scheduleEvaluate();
+            return true;
+        } finally {
+            immediateSendLocked = false;
+            renderPanel();
+        }
+    }
+
+    async function sendPrompt(
+        prompt,
+        label,
+        options
+    ) {
+        if (stopped || sendLocked) {
+            return false;
+        }
+
+        const opts = options || {};
+        const deferWhenBlocked =
+            opts.deferWhenBlocked !== false;
+
+        if (getStopButton()) {
+            if (deferWhenBlocked) {
+                deferAutoSend(
+                    prompt,
+                    label,
+                    "chatgpt-busy"
+                );
+                return false;
+            }
+
             throw new Error(
                 "ChatGPT is already generating a response."
+            );
+        }
+
+        if (getComposerText()) {
+            if (deferWhenBlocked) {
+                deferAutoSend(
+                    prompt,
+                    label,
+                    "composer-occupied"
+                );
+                return false;
+            }
+
+            throw new Error(
+                "Composer is not empty; refusing to overwrite existing text."
             );
         }
 
@@ -2187,7 +2561,25 @@
             getTurns().map(getTurnKey)
         );
 
-        await setComposerText(prompt);
+        try {
+            await setComposerText(prompt);
+        } catch (err) {
+            if (
+                deferWhenBlocked &&
+                err?.code ===
+                    "COMPOSER_NOT_EMPTY"
+            ) {
+                deferAutoSend(
+                    prompt,
+                    label,
+                    "composer-occupied"
+                );
+                return false;
+            }
+
+            sendLocked = false;
+            throw err;
+        }
 
         const sendButton = await waitUntil(
             function () {
@@ -2233,13 +2625,19 @@
 
         sendButton.click();
 
+        if (label === "injection") {
+            injectionSentCount++;
+        }
+
         setState(
             "WAITING_FOR_TURN",
             "⏳ Waiting for ChatGPT...",
             "#d39e00"
         );
 
+        renderPanel();
         scheduleEvaluate();
+        return true;
     }
 
     function completeCycle(cycle, text) {
@@ -2299,8 +2697,6 @@
                 }
 
                 currentCycle = null;
-                injectionSentCount++;
-                renderPanel();
 
                 sendPrompt(
                     dueInjection.text,
@@ -2344,9 +2740,6 @@
             currentCycle = null;
 
             if (lateInjection) {
-                injectionSentCount++;
-                renderPanel();
-
                 sendPrompt(
                     lateInjection.text,
                     "injection"
@@ -2369,7 +2762,11 @@
     function evaluate() {
         evaluateScheduled = false;
 
-        if (stopped || !currentCycle) {
+        if (
+            stopped ||
+            immediateSendLocked ||
+            !currentCycle
+        ) {
             return;
         }
 
@@ -2572,7 +2969,23 @@
 
         evaluateScheduled = true;
 
-        setTimeout(evaluate, 0);
+        setTimeout(function () {
+            evaluateScheduled = false;
+
+            if (
+                !currentCycle &&
+                pendingAutoSend
+            ) {
+                resumePendingAutoSend(
+                    false
+                ).catch(function (err) {
+                    fail(err.message, err);
+                });
+                return;
+            }
+
+            evaluate();
+        }, 0);
     }
 
     async function beginRun(mode, taskText) {
@@ -2719,6 +3132,15 @@
                 queuedIntermediateMessages:
                     injectionQueue.length,
                 injectionSentCount,
+                immediateSendLocked,
+                pendingAutoSend: pendingAutoSend
+                    ? {
+                          label:
+                              pendingAutoSend.label,
+                          reason:
+                              pendingAutoSend.reason
+                      }
+                    : null,
                 stopAfterCompletedResponses,
                 stopLimitMode,
                 chatMetrics: getChatMetrics(),
@@ -2749,7 +3171,9 @@
                     intermediateSent:
                         injectionSentCount,
                     intermediateQueued:
-                        injectionQueue.length
+                        injectionQueue.length,
+                    pendingAutoSend:
+                        !!pendingAutoSend
                 },
                 chat: getChatMetrics(),
                 stepLimit: {
@@ -2803,6 +3227,10 @@
                 taskText
             );
         },
+        sendMessageImmediately:
+            sendImmediateInjection,
+        resume:
+            resumePendingAutoSend,
         queueMessage: function (
             text,
             afterResponses
