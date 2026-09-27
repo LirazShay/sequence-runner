@@ -25,7 +25,7 @@ The current configuration uses:
 - Continuation instruction: `תמשיך לשלב הבא`
 - Completion marker: `סיימתי`
 
-The completion marker is accepted only at the end of the newly completed assistant response, rather than anywhere in the conversation.
+A bare final completion marker is accepted only at the end of the newly completed assistant response, rather than anywhere in the conversation. If the current chat segment is complete but the sequence must continue in a new chat, the assistant writes `סיימתי` and then the handoff block; the final handoff block takes precedence over local chat completion.
 
 ## Product idea
 
@@ -114,7 +114,18 @@ A response ending with:
 סיימתי
 ```
 
-does.
+does, but only when that is truly the end of the complete sequence.
+
+When the current chat has finished its assigned work but another chat must continue the sequence, the response instead ends with:
+
+```text
+סיימתי
+[[SEQUENCE_RUNNER_NEW_CHAT]]
+...
+[[/SEQUENCE_RUNNER_NEW_CHAT]]
+```
+
+The handoff block is then the final content, so the runner performs the handoff rather than stopping.
 
 Light punctuation/Markdown around the final marker is tolerated.
 
@@ -228,6 +239,9 @@ The first runner prompt installs this contract automatically. A handoff is not t
 
 Behavior:
 
+- If only the current chat segment is complete, the assistant writes `סיימתי` immediately before the handoff block.
+- A bare final `סיימתי` is reserved for the true end of the complete sequence.
+- If the assistant says another chat is ready, assigned or still contains work, it must include the handoff block instead of ending with bare `סיימתי`.
 - The handoff block must be the final content in the assistant response.
 - The prompt between the `NEXT_CHAT_PROMPT` markers must be non-empty.
 - Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
