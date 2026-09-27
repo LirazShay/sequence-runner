@@ -235,16 +235,32 @@ If a queued message becomes due at the same boundary where the assistant emits t
 
 The explicit step-limit safety guard still has higher priority: if the configured step limit has been reached, the runner stops instead of sending another message.
 
-Multiple intermediate messages may be queued. They are processed in target-order and then insertion-order.
+Multiple intermediate messages may be queued. They are processed in target-order and then user-controlled order within the same target boundary.
+
+The control panel includes a collapsible **intermediate-message manager**. It shows every queued message and lets the user:
+
+- edit the message text
+- change its relative schedule ("after N more responses")
+- delete one queued message
+- move a message up or down relative to other messages scheduled for the same boundary
+- clear the complete queue
+
+Reordering is intentionally limited to messages with the same target boundary. A message scheduled for a later response cannot silently jump ahead of an earlier scheduled boundary; change its "after N" value explicitly when the schedule itself should change.
 
 Examples:
 
 ```js
 // At the next safe response boundary:
-__sequenceRunner.queueMessage("עדכון למשימה...", 0)
+const id = __sequenceRunner.queueMessage("עדכון למשימה...", 0)
 
 // After 3 additional completed responses:
 __sequenceRunner.queueMessage("שנה את נקודת הסיום ל...", 3)
+
+// Inspect and manage queued messages:
+__sequenceRunner.getQueuedMessages()
+__sequenceRunner.updateQueuedMessage(id, "טקסט מעודכן...", 2)
+__sequenceRunner.deleteQueuedMessage(id)
+__sequenceRunner.moveQueuedMessage(id, "up")
 
 __sequenceRunner.clearQueuedMessages()
 ```

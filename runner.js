@@ -1,4 +1,4 @@
-// Sequence Runner v3.5
+// Sequence Runner v3.6
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -113,7 +113,12 @@
         '<button type="button" data-action="queue-injection-after" style="border:0;background:#7c3aed;color:#fff;border-radius:6px;padding:6px 9px;cursor:pointer">תזמן</button>',
         '</div>',
         '<div data-role="injection-status" style="font-size:12px;color:#cbd5e1;margin-bottom:6px">אין הודעות ביניים מתוזמנות.</div>',
+        '<button type="button" data-action="toggle-injection-manager" style="width:100%;border:1px solid #6d28d9;background:#2e1065;color:#fff;border-radius:6px;padding:6px;cursor:pointer;margin-bottom:6px">ניהול הודעות ביניים (0)</button>',
+        '<div data-role="injection-manager" style="display:none;border:1px solid rgba(139,92,246,.35);background:#0f172a;border-radius:7px;padding:7px;margin-bottom:6px">',
+        '<div data-role="injection-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:7px"></div>',
         '<button type="button" data-action="clear-injections" style="width:100%;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:6px;padding:6px;cursor:pointer">נקה תור הודעות ביניים</button>',
+        '<div style="margin-top:6px;font-size:10px;color:#94a3b8">החצים משנים סדר רק בין הודעות שמיועדות לאותו גבול. שינוי “בעוד N” מעדכן את מועד השליחה יחסית למצב הנוכחי.</div>',
+        '</div>',
         '<div style="margin-top:6px;font-size:11px;color:#94a3b8">“עכשיו” פירושו בגבול הבטוח הקרוב: לעולם לא קוטעים תשובת Assistant באמצע. תזמון “בעוד N” נספר לפי תגובות Assistant שמושלמות מרגע התזמון.</div>',
         '</div>',
         '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px">',
@@ -145,6 +150,9 @@
     const metricsDiv = panel.querySelector('[data-role="metrics"]');
     const limitStatusDiv = panel.querySelector('[data-role="limit-status"]');
     const injectionStatusDiv = panel.querySelector('[data-role="injection-status"]');
+    const injectionManagerDiv = panel.querySelector('[data-role="injection-manager"]');
+    const injectionListDiv = panel.querySelector('[data-role="injection-list"]');
+    const injectionManagerButton = panel.querySelector('[data-action="toggle-injection-manager"]');
     const resizeHandle = panel.querySelector('[data-role="resize-handle"]');
 
     const log = [];
@@ -653,6 +661,13 @@
             }
         }
 
+        if (injectionManagerButton) {
+            injectionManagerButton.textContent =
+                "ניהול הודעות ביניים (" +
+                injectionQueue.length +
+                ")";
+        }
+
         const stopButton = panel.querySelector(
             '[data-action="stop"]'
         );
@@ -676,6 +691,36 @@
         }
 
         return parsed;
+    }
+
+    function parseNonNegativeInteger(value) {
+        const parsed = Number(value);
+
+        if (
+            !Number.isInteger(parsed) ||
+            parsed < 0
+        ) {
+            return null;
+        }
+
+        return parsed;
+    }
+
+    function escapeHtml(value) {
+        const replacements = {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        };
+
+        return String(value).replace(
+            /[&<>"']/g,
+            function (character) {
+                return replacements[character];
+            }
+        );
     }
 
     function applyStepLimit(target, mode) {
@@ -718,6 +763,115 @@
         );
     }
 
+    function sortInjectionQueue() {
+        injectionQueue.sort(function (a, b) {
+            return (
+                a.targetCompletedResponses -
+                    b.targetCompletedResponses ||
+                a.order - b.order ||
+                a.id - b.id
+            );
+        });
+    }
+
+    function getQueuedInjectionById(id) {
+        return injectionQueue.find(function (item) {
+            return item.id === id;
+        }) || null;
+    }
+
+    function renderInjectionManager() {
+        if (!injectionListDiv) {
+            return;
+        }
+
+        sortInjectionQueue();
+
+        if (!injectionQueue.length) {
+            injectionListDiv.innerHTML =
+                '<div style="font-size:11px;color:#94a3b8;padding:4px 2px">אין כרגע הודעות ביניים בתור.</div>';
+            return;
+        }
+
+        injectionListDiv.innerHTML =
+            injectionQueue.map(function (item, index) {
+                const remaining = Math.max(
+                    0,
+                    item.targetCompletedResponses -
+                        completedResponseCount
+                );
+
+                const canMoveUp =
+                    index > 0 &&
+                    injectionQueue[
+                        index - 1
+                    ].targetCompletedResponses ===
+                        item.targetCompletedResponses;
+
+                const canMoveDown =
+                    index <
+                        injectionQueue.length - 1 &&
+                    injectionQueue[
+                        index + 1
+                    ].targetCompletedResponses ===
+                        item.targetCompletedResponses;
+
+                const disabledStyle =
+                    "opacity:.38;cursor:default";
+
+                return [
+                    '<div data-injection-id="' +
+                        item.id +
+                        '" style="border:1px solid #334155;border-radius:6px;padding:6px;background:#111827">',
+                    '<div style="display:flex;justify-content:space-between;gap:6px;align-items:center;margin-bottom:5px">',
+                    '<strong style="font-size:11px">#' +
+                        item.id +
+                        '</strong>',
+                    '<span style="font-size:10px;color:#a78bfa">' +
+                        (remaining === 0
+                            ? "בגבול הקרוב"
+                            : "בעוד " +
+                              remaining +
+                              " תגובות") +
+                        " · יעד #" +
+                        item.targetCompletedResponses +
+                        "</span>",
+                    "</div>",
+                    '<textarea data-field="text" rows="3" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:5px;padding:6px;margin-bottom:5px">' +
+                        escapeHtml(item.text) +
+                        "</textarea>",
+                    '<div style="display:grid;grid-template-columns:1fr auto;gap:5px;margin-bottom:5px">',
+                    '<input data-field="after" type="number" min="0" step="1" value="' +
+                        remaining +
+                        '" title="0 = הגבול הבטוח הקרוב" style="min-width:0;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:5px;padding:5px 6px">',
+                    '<button type="button" data-action="update-injection" style="border:0;background:#6d28d9;color:#fff;border-radius:5px;padding:5px 8px;cursor:pointer">עדכן</button>',
+                    "</div>",
+                    '<div style="display:flex;gap:5px">',
+                    '<button type="button" data-action="move-injection-up"' +
+                        (canMoveUp
+                            ? ""
+                            : " disabled") +
+                        ' title="העבר לפני הודעה אחרת באותו יעד" style="flex:0 0 34px;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:5px;padding:4px;cursor:pointer;' +
+                        (canMoveUp
+                            ? ""
+                            : disabledStyle) +
+                        '">↑</button>',
+                    '<button type="button" data-action="move-injection-down"' +
+                        (canMoveDown
+                            ? ""
+                            : " disabled") +
+                        ' title="העבר אחרי הודעה אחרת באותו יעד" style="flex:0 0 34px;border:1px solid #475569;background:#1f2937;color:#fff;border-radius:5px;padding:4px;cursor:pointer;' +
+                        (canMoveDown
+                            ? ""
+                            : disabledStyle) +
+                        '">↓</button>',
+                    '<button type="button" data-action="delete-injection" style="flex:1;border:0;background:#7f1d1d;color:#fff;border-radius:5px;padding:4px 6px;cursor:pointer">מחק</button>',
+                    "</div>",
+                    "</div>"
+                ].join("");
+            }).join("");
+    }
+
     function queueInjection(text, afterResponses) {
         const message = normalizeText(text);
 
@@ -744,22 +898,18 @@
             );
         }
 
+        const id = ++injectionSeq;
         const item = {
-            id: ++injectionSeq,
+            id,
             text: message,
             targetCompletedResponses:
                 completedResponseCount + offset,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            order: id
         };
 
         injectionQueue.push(item);
-        injectionQueue.sort(function (a, b) {
-            return (
-                a.targetCompletedResponses -
-                    b.targetCompletedResponses ||
-                a.id - b.id
-            );
-        });
+        sortInjectionQueue();
 
         record("injection-queued", {
             id: item.id,
@@ -769,7 +919,138 @@
         });
 
         renderPanel();
+        renderInjectionManager();
         return item.id;
+    }
+
+    function updateQueuedInjection(
+        id,
+        text,
+        afterResponses
+    ) {
+        const item = getQueuedInjectionById(id);
+
+        if (!item) {
+            throw new Error(
+                "Queued intermediate message was not found."
+            );
+        }
+
+        const message = normalizeText(text);
+
+        if (!message) {
+            throw new Error(
+                "Intermediate message cannot be empty."
+            );
+        }
+
+        const offset =
+            parseNonNegativeInteger(afterResponses);
+
+        if (offset == null) {
+            throw new Error(
+                "Intermediate message offset must be a non-negative integer."
+            );
+        }
+
+        item.text = message;
+        item.targetCompletedResponses =
+            completedResponseCount + offset;
+
+        sortInjectionQueue();
+
+        record("injection-updated", {
+            id: item.id,
+            targetCompletedResponses:
+                item.targetCompletedResponses,
+            offset
+        });
+
+        renderPanel();
+        renderInjectionManager();
+        return true;
+    }
+
+    function deleteQueuedInjection(id) {
+        const index = injectionQueue.findIndex(
+            function (item) {
+                return item.id === id;
+            }
+        );
+
+        if (index < 0) {
+            return false;
+        }
+
+        const item = injectionQueue.splice(
+            index,
+            1
+        )[0];
+
+        record("injection-deleted", {
+            id: item.id
+        });
+
+        renderPanel();
+        renderInjectionManager();
+        return true;
+    }
+
+    function moveQueuedInjection(id, direction) {
+        sortInjectionQueue();
+
+        const index = injectionQueue.findIndex(
+            function (item) {
+                return item.id === id;
+            }
+        );
+
+        if (index < 0) {
+            return false;
+        }
+
+        const delta =
+            direction === "up"
+                ? -1
+                : direction === "down"
+                  ? 1
+                  : 0;
+
+        if (!delta) {
+            throw new Error(
+                "Direction must be 'up' or 'down'."
+            );
+        }
+
+        const neighborIndex = index + delta;
+        const item = injectionQueue[index];
+        const neighbor =
+            injectionQueue[neighborIndex];
+
+        if (
+            !neighbor ||
+            neighbor.targetCompletedResponses !==
+                item.targetCompletedResponses
+        ) {
+            return false;
+        }
+
+        const oldOrder = item.order;
+        item.order = neighbor.order;
+        neighbor.order = oldOrder;
+
+        sortInjectionQueue();
+
+        record("injection-reordered", {
+            id: item.id,
+            direction,
+            targetCompletedResponses:
+                item.targetCompletedResponses
+        });
+
+        renderPanel();
+        renderInjectionManager();
+        return true;
     }
 
     function clearQueuedInjections() {
@@ -781,6 +1062,7 @@
         });
 
         renderPanel();
+        renderInjectionManager();
     }
 
     function takeDueInjection() {
@@ -797,7 +1079,10 @@
             return null;
         }
 
-        return injectionQueue.shift();
+        const item = injectionQueue.shift();
+        renderPanel();
+        renderInjectionManager();
+        return item;
     }
 
     function getPanelSizeLimits() {
@@ -1105,6 +1390,128 @@
                             " תגובות.",
                         "#7c3aed"
                     );
+                } catch (err) {
+                    updateStatus(
+                        "🔴 " + err.message,
+                        "#b91c1c"
+                    );
+                }
+            }
+        );
+
+        panel.querySelector(
+            '[data-action="toggle-injection-manager"]'
+        )?.addEventListener(
+            "click",
+            function () {
+                if (!injectionManagerDiv) {
+                    return;
+                }
+
+                const opening =
+                    injectionManagerDiv.style.display ===
+                    "none";
+
+                injectionManagerDiv.style.display =
+                    opening ? "" : "none";
+
+                if (opening) {
+                    renderInjectionManager();
+                }
+            }
+        );
+
+        injectionListDiv?.addEventListener(
+            "click",
+            function (event) {
+                const button = event.target.closest(
+                    "button[data-action]"
+                );
+
+                if (!button || button.disabled) {
+                    return;
+                }
+
+                const card = button.closest(
+                    "[data-injection-id]"
+                );
+
+                const id = Number(
+                    card?.getAttribute(
+                        "data-injection-id"
+                    )
+                );
+
+                if (!Number.isInteger(id)) {
+                    return;
+                }
+
+                const action =
+                    button.getAttribute(
+                        "data-action"
+                    );
+
+                try {
+                    if (
+                        action ===
+                        "update-injection"
+                    ) {
+                        const textInput =
+                            card.querySelector(
+                                '[data-field="text"]'
+                            );
+
+                        const afterInput =
+                            card.querySelector(
+                                '[data-field="after"]'
+                            );
+
+                        updateQueuedInjection(
+                            id,
+                            textInput?.value || "",
+                            afterInput?.value
+                        );
+
+                        updateStatus(
+                            "📝 הודעת הביניים עודכנה.",
+                            "#7c3aed"
+                        );
+                        return;
+                    }
+
+                    if (
+                        action ===
+                        "delete-injection"
+                    ) {
+                        deleteQueuedInjection(id);
+
+                        updateStatus(
+                            "🗑️ הודעת הביניים נמחקה.",
+                            "#7f1d1d"
+                        );
+                        return;
+                    }
+
+                    if (
+                        action ===
+                        "move-injection-up"
+                    ) {
+                        moveQueuedInjection(
+                            id,
+                            "up"
+                        );
+                        return;
+                    }
+
+                    if (
+                        action ===
+                        "move-injection-down"
+                    ) {
+                        moveQueuedInjection(
+                            id,
+                            "down"
+                        );
+                    }
                 } catch (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -2407,6 +2814,30 @@
                     : afterResponses
             );
         },
+        getQueuedMessages: function () {
+            return injectionQueue.map(
+                function (item) {
+                    return {
+                        id: item.id,
+                        text: item.text,
+                        targetCompletedResponses:
+                            item.targetCompletedResponses,
+                        remainingResponses:
+                            Math.max(
+                                0,
+                                item.targetCompletedResponses -
+                                    completedResponseCount
+                            )
+                    };
+                }
+            );
+        },
+        updateQueuedMessage:
+            updateQueuedInjection,
+        deleteQueuedMessage:
+            deleteQueuedInjection,
+        moveQueuedMessage:
+            moveQueuedInjection,
         clearQueuedMessages:
             clearQueuedInjections,
         isDone
