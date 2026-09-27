@@ -265,6 +265,9 @@ Rules:
 - The assistant may place a `סיימתי` line immediately before a valid handoff block to mark the current chat segment complete.
 - A bare final `סיימתי` is reserved for true end-of-sequence completion.
 - If the response says or records that another chat is ready, assigned or still has work, it must not end with bare `סיימתי`; it must include the handoff block.
+- The assistant should proactively choose a handoff when a new chat would materially improve focus, precision or continuation quality, including when the current chat has accumulated a lot of messages/work/context, the current topic is exhausted, a materially different stage begins, or most old context is no longer useful.
+- Do not hand off merely because an ordinary step completed. If a fresh chat has no real benefit, continue in the current chat.
+- The handoff prompt must be self-contained and include what is already done, current state, remaining work, the exact next step, and important constraints/decisions.
 - The handoff block must be the final content of the newly completed assistant response.
 - The next-chat prompt must be non-empty.
 - Malformed handoff markers are an error; do not silently treat them as ordinary continuation.
