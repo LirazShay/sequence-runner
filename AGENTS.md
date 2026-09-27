@@ -33,7 +33,8 @@ Current workflow configuration:
 
 - Continuation prompt: `תמשיך לשלב הבא`
 - Completion marker: `סיימתי`
-- Completion is accepted only at the end of the newly completed assistant response.
+- A bare final `סיימתי` means the entire sequence is complete.
+- When the current chat is complete but work must continue in a new chat, the assistant is instructed to write `סיימתי` and then the valid handoff block. Because the handoff block is the final content, the runner continues instead of treating that local chat completion as global completion.
 
 The longer-term product direction is a generic sequence/workflow runner, not a script hard-coded forever to one Hebrew prompt.
 
@@ -260,7 +261,10 @@ A valid handoff response ends with:
 
 Rules:
 
-- A handoff is not completion.
+- A handoff is not global completion.
+- The assistant may place a `סיימתי` line immediately before a valid handoff block to mark the current chat segment complete.
+- A bare final `סיימתי` is reserved for true end-of-sequence completion.
+- If the response says or records that another chat is ready, assigned or still has work, it must not end with bare `סיימתי`; it must include the handoff block.
 - The handoff block must be the final content of the newly completed assistant response.
 - The next-chat prompt must be non-empty.
 - Malformed handoff markers are an error; do not silently treat them as ordinary continuation.
@@ -466,6 +470,8 @@ Important behavioral cases include:
 - a due intermediate message takes precedence over the ordinary completion marker
 - the explicit step limit takes precedence over intermediate messages
 - a valid handoff marker block is parsed only when it is complete and at the end of the response
+- a response with `סיימתי` immediately before a valid final handoff block performs the handoff instead of stopping
+- a bare final `סיימתי` stops only when no handoff block follows it
 - a malformed handoff block fails safely instead of sending a continuation
 - a Project handoff selects the exact current Project's new-chat action
 - a non-Project handoff selects the visible general New chat action
