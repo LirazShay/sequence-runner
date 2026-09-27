@@ -255,6 +255,8 @@ The explicit step-limit safety guard has higher priority than queued intermediat
 
 Queued messages must preserve the one-send/one-completed-turn invariant and must not cause duplicate continuation sends.
 
+The management panel must expose the queued intermediate messages, not only a count. Users must be able to edit message text, change the relative schedule, delete individual messages and reorder messages that share the same target boundary. Reordering must not silently override scheduling semantics across different target boundaries.
+
 ### Management panel and run limits
 
 The current runner includes a draggable/minimizable management panel.
