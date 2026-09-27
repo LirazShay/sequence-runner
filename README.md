@@ -252,7 +252,7 @@ Behavior:
 - If the assistant says another chat is ready, assigned or still contains work, it must include the handoff block instead of ending with bare `סיימתי`.
 - The assistant may also decide on its own to hand off when a fresh chat would materially improve focus, precision or continuation quality — for example after a long/loaded chat, when the current topic is exhausted, when a substantially different stage begins, or when most old context is no longer needed.
 - Finishing an ordinary step is not by itself a reason to open a new chat.
-- The next-chat prompt is **minimal but sufficient**. If a durable source of truth (for example repository status/execution/handoff docs) can reliably reconstruct the current state, the assistant must verify that source first and then avoid duplicating recoverable state in the handoff. Missing essential context is persisted there when appropriate, or only that missing context is included in the handoff.
+- The next-chat prompt is **minimal but sufficient**. Prefer keeping durable continuation state in a verified external source of truth. Before handoff, update that source when important state is missing; include in the prompt only essential context that cannot be reconstructed from it. The key test is whether a fresh chat can reconstruct the current state and continue correctly without the previous chat history.
 - The handoff block must be the final content in the assistant response.
 - The prompt between the `NEXT_CHAT_PROMPT` markers must be non-empty.
 - Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
