@@ -361,8 +361,9 @@ Completion detection must prefer explicit final-turn UI over timing heuristics.
 For the current tested ChatGPT DOM:
 
 - `button[aria-label="Stop"]` means generation is still active.
-- `button[aria-label="Regenerate response"]` inside the current turn, with no active Stop button, is treated as authoritative evidence that the assistant response has completed.
-- Stable-text timing remains only a fallback for fast or alternate UI cases where the final action is not observed.
+- `button[aria-label="Regenerate response"]` inside the current turn, with no active Stop button, is treated as authoritative evidence that generation has completed.
+- After final UI appears, the runner still waits until the assistant text has remained unchanged for `STABLE_MS` before evaluation. This prevents a race where the final controls render before the last response text — including completion or handoff markers — has finished settling in the DOM.
+- Stable-text timing remains a fallback for fast or alternate UI cases where the final action is not observed.
 
 Assistant text lookup is resilient to wrapper changes. The runner first uses:
 

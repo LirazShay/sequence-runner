@@ -218,15 +218,17 @@ The Stop button is a strong signal that generation is active, but very fast resp
 
 ### Response-completion authority
 
-For the currently verified UI, a `Regenerate response` action inside the current turn while no Stop button is active is authoritative evidence that the response has completed.
+For the currently verified UI, a `Regenerate response` action inside the current turn while no Stop button is active is authoritative evidence that generation has completed.
 
-Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is already present.
+The final UI may appear a fraction of a second before the last text DOM mutations settle. Therefore, once final UI is present, do not evaluate the response until the assistant text has remained unchanged for `STABLE_MS`. This is a DOM-settle guard, not a replacement completion heuristic.
+
+Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is already present; use `WAITING_FOR_STABLE_RESPONSE` only while the final text is settling.
 
 Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper.
 
 Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace DOM nodes.
 
-Stable-text timing is a fallback, not the primary completion signal.
+Stable-text timing remains a fallback when final UI is unavailable; with final UI present, the short stability window protects against evaluating an incomplete final DOM snapshot.
 
 ### Long-running responses
 
