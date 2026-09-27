@@ -2762,7 +2762,11 @@
     function evaluate() {
         evaluateScheduled = false;
 
-        if (stopped || !currentCycle) {
+        if (
+            stopped ||
+            immediateSendLocked ||
+            !currentCycle
+        ) {
             return;
         }
 
