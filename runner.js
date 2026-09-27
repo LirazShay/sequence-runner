@@ -1,4 +1,4 @@
-// Sequence Runner v3.12
+// Sequence Runner v3.13
 // State-machine based automatic continuation runner for the current ChatGPT web UI.
 // Use the floating control panel to configure, monitor and stop the run.
 
@@ -3483,6 +3483,23 @@
                 );
             }
 
+            const finalUiStableFor =
+                Date.now() -
+                cycle.lastTextChangedAt;
+
+            if (
+                finalUiStableFor <
+                CONFIG.STABLE_MS
+            ) {
+                setState(
+                    "WAITING_FOR_STABLE_RESPONSE",
+                    "⏳ Final response UI detected; waiting for final text to settle...",
+                    "#d39e00"
+                );
+
+                return;
+            }
+
             record(
                 "final-ui-detected",
                 {
@@ -3490,7 +3507,9 @@
                     turnKey:
                         cycle.turnKey,
                     textLength:
-                        text.length
+                        text.length,
+                    stableFor:
+                        finalUiStableFor
                 }
             );
 
