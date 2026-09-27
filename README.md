@@ -230,7 +230,7 @@ The runner can continue a sequence in a fresh chat when the assistant explicitly
 [[SEQUENCE_RUNNER_NEW_CHAT]]
 בשלב זה מומלץ לעבור לצ'אט חדש.
 [[NEXT_CHAT_PROMPT]]
-...self-contained prompt for the next chat...
+...minimal sufficient prompt for the next chat...
 [[/NEXT_CHAT_PROMPT]]
 [[/SEQUENCE_RUNNER_NEW_CHAT]]
 ```
