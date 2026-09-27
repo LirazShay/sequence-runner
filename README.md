@@ -15,8 +15,9 @@ The runner turns a repeated manual workflow:
 2. Wait for the assistant to finish.
 3. Inspect only the new assistant response.
 4. If the response is complete, stop.
-5. Otherwise send the continuation prompt once.
-6. Repeat.
+5. If the response requests a new-chat handoff, open a fresh chat in the same Project when applicable, transfer the handoff prompt and continue there.
+6. Otherwise send the continuation prompt once.
+7. Repeat.
 
 The current configuration uses:
 
@@ -58,6 +59,9 @@ The current ChatGPT web UI was probed before implementation. The runner currentl
 - Composer: `[contenteditable="true"][data-composer-markdown]`
 - Send button: `button[aria-label="Send"]`
 - Generation indicator: `button[aria-label="Stop"]`
+- Project breadcrumb: `nav[aria-label="Breadcrumb"] a[href$="/project"]`
+- Project new-chat action: `button[aria-label^="New chat in "]`
+- Regular new-chat action: visible `button[aria-label="New chat"]`
 
 Fallback selectors are included for a few controls.
 
@@ -71,6 +75,7 @@ START
   -> GENERATING / WAIT_FOR_STABLE_RESPONSE
   -> EVALUATE
        -> DONE: STOP
+       -> HANDOFF: OPEN NEW CHAT -> SEND HANDOFF PROMPT
        -> NOT DONE: SEND CONTINUATION
 ```
 
@@ -173,6 +178,18 @@ The panel exposes current, DOM-observable chat metrics:
 
 These are operational indicators, not an official ChatGPT context-window or token counter.
 
+### Start a fresh run
+
+When a run reaches a terminal state — successful completion, manual/limit stop, or error — the panel shows **התחל ריצה חדשה**.
+
+Restarting reuses the same loaded runner and panel but resets all run-specific state: counters, processed-turn tracking, step limits, queued intermediate messages, pending sends and handoff counters. Panel position, size and minimized preference remain intact. The start configuration is shown again so a different task can begin without reinjecting the bookmarklet.
+
+Programmatic restart:
+
+```js
+__sequenceRunner.restart()
+```
+
 ### Run limits
 
 The panel supports two safe stop controls:
@@ -194,11 +211,40 @@ __sequenceRunner.getMetrics()
 ```
 
 
-## Deferred roadmap item: automatic chat rollover
+## Automatic chat rollover / handoff
 
-A future feature may detect that a conversation is becoming too long, ask the current chat to produce a continuation/handoff prompt, open a fresh chat, transfer that handoff prompt, and resume the sequence there.
+The runner can continue a sequence in a fresh chat when the assistant explicitly returns this machine-readable block at the end of its response:
 
-This is intentionally deferred. It should be designed separately because it introduces navigation, state transfer, recovery and cross-chat correctness concerns.
+```text
+[[SEQUENCE_RUNNER_NEW_CHAT]]
+בשלב זה מומלץ לעבור לצ'אט חדש.
+[[NEXT_CHAT_PROMPT]]
+...self-contained prompt for the next chat...
+[[/NEXT_CHAT_PROMPT]]
+[[/SEQUENCE_RUNNER_NEW_CHAT]]
+```
+
+The first runner prompt installs this contract automatically. A handoff is not treated as completion.
+
+Behavior:
+
+- The handoff block must be the final content in the assistant response.
+- The prompt between the `NEXT_CHAT_PROMPT` markers must be non-empty.
+- Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
+- Outside a Project, the runner clicks the visible general `New chat` action.
+- Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition.
+- The extracted handoff prompt is sent in the new chat together with the same sequence/completion/handoff contract, so additional rollovers remain possible.
+- Runner counters, step limits and queued messages remain in the same in-page runner session across the SPA navigation.
+- A malformed handoff marker block stops with an error instead of silently continuing.
+- Priority at a response boundary remains: explicit step limit, malformed-handoff safety check, due intermediate message, valid handoff, normal completion, ordinary continuation.
+
+Debugging:
+
+```js
+__sequenceRunner.parseHandoff(text)
+__sequenceRunner.getState()
+__sequenceRunner.getMetrics()
+```
 
 
 ## Start modes
@@ -207,8 +253,8 @@ The runner no longer has to assume that the task was already described earlier i
 
 The control panel offers two start modes:
 
-- **Existing task/context** — preserves the original behavior. The first runner prompt only installs the step-by-step continuation/completion contract and asks the assistant to continue.
-- **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation and completion contract, then asks the assistant to begin the first step.
+- **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion and new-chat handoff contract and asks the assistant to continue.
+- **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion and handoff contract, then asks the assistant to begin the first step.
 
 The runner waits for an explicit Start action from the panel. It does not automatically send the first prompt merely because the script was loaded.
 

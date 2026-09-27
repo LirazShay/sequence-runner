@@ -97,6 +97,7 @@ START
   -> WAIT_FOR_RESPONSE_COMPLETE
   -> EVALUATE
        -> DONE: STOP
+       -> HANDOFF: OPEN NEW CHAT -> SEND HANDOFF PROMPT
        -> NOT DONE: SEND NEXT
 ```
 
@@ -143,6 +144,23 @@ Generation signal:
 ```js
 button[aria-label="Stop"]
 ```
+
+Project breadcrumb:
+```js
+nav[aria-label="Breadcrumb"] a[href$="/project"]
+```
+
+Project new chat:
+```js
+button[aria-label^="New chat in "]
+```
+
+Regular new chat:
+```js
+button[aria-label="New chat"]
+```
+
+For the two new-chat selectors, select the visible element and, for a Project, require an exact `New chat in <current project>` label.
 
 Selectors that did NOT work in the tested UI and must not be reintroduced without a fresh DOM probe:
 
@@ -225,6 +243,36 @@ Never overwrite text already typed by the user.
 
 After programmatic insertion, verify the actual composer contents before clicking Send.
 
+### Automatic chat handoff
+
+The first runner prompt installs a machine-readable handoff contract.
+
+A valid handoff response ends with:
+
+```text
+[[SEQUENCE_RUNNER_NEW_CHAT]]
+בשלב זה מומלץ לעבור לצ'אט חדש.
+[[NEXT_CHAT_PROMPT]]
+...self-contained continuation prompt...
+[[/NEXT_CHAT_PROMPT]]
+[[/SEQUENCE_RUNNER_NEW_CHAT]]
+```
+
+Rules:
+
+- A handoff is not completion.
+- The handoff block must be the final content of the newly completed assistant response.
+- The next-chat prompt must be non-empty.
+- Malformed handoff markers are an error; do not silently treat them as ordinary continuation.
+- Explicit step-limit safety still has highest priority.
+- A due user-queued intermediate message keeps its existing boundary precedence over a valid handoff.
+- In a Project chat, remain in the same Project by using the exact current-Project new-chat action.
+- Outside a Project, use the visible general New chat action.
+- After clicking New chat, wait for the URL to change before touching the composer. This avoids the old-composer SPA race observed during probing.
+- Only after navigation has completed may the new empty visible composer be used.
+- Send the extracted continuation context together with the standard runner continuation/completion/handoff contract so later rollovers still work.
+- Do not construct Project conversation URLs manually when a verified UI action is available.
+
 ### Manual stop
 
 Always preserve an immediate manual stop path.
@@ -275,6 +323,8 @@ The panel reports operational chat/run metrics and allows a safe step limit to b
 A step limit is a boundary between completed responses. Never implement it by interrupting a response that is currently generating.
 
 Changing or clearing the limit during a run must not create duplicate sends or violate the one-send/one-turn invariant.
+
+After any terminal state that leaves the panel mounted — successful completion, manual/limit stop, or error — the runner must be reusable without reinjecting the script. A new-run reset must clean run-specific state and restart observers/timers exactly once while preserving panel layout preferences. Do not carry processed-turn keys, queued messages, pending sends, counters or limits into the next run.
 
 ## Prompt insertion
 
@@ -394,7 +444,7 @@ Potential extensions already identified:
 - automated tests
 - userscript/browser extension packaging
 - small UI for workflow configuration
-- automatic chat rollover / continuation handoff (deferred; design separately before implementation)
+- richer policies for when the assistant should recommend an automatic chat rollover
 
 Do not build all of these at once.
 
@@ -415,6 +465,12 @@ Important behavioral cases include:
 - an intermediate message scheduled after N responses is injected at the correct boundary
 - a due intermediate message takes precedence over the ordinary completion marker
 - the explicit step limit takes precedence over intermediate messages
+- a valid handoff marker block is parsed only when it is complete and at the end of the response
+- a malformed handoff block fails safely instead of sending a continuation
+- a Project handoff selects the exact current Project's new-chat action
+- a non-Project handoff selects the visible general New chat action
+- handoff navigation waits for the URL change before writing to the composer
+- the handoff prompt reinstalls the runner contract so a second rollover remains possible
 - initial prompt is sent once
 - one completed non-final response causes exactly one continuation
 - "עדיין לא סיימתי" does not stop the workflow
@@ -423,6 +479,9 @@ Important behavioral cases include:
 - long-running responses keep waiting without duplicate sends or automatic timeout failure
 - existing composer text is never overwritten
 - a processed turn cannot be processed twice
+- after DONE, STOPPED or ERROR, the user can start a fresh run without reloading the script
+- restarting clears run-specific counters, limits, queues, pending sends and processed-turn tracking
+- restarting does not duplicate observers/watchdogs or erase persisted panel layout preferences
 
 Where possible, keep state-machine tests separate from real ChatGPT DOM integration tests.
 
