@@ -178,6 +178,18 @@ The panel exposes current, DOM-observable chat metrics:
 
 These are operational indicators, not an official ChatGPT context-window or token counter.
 
+### Start a fresh run
+
+When a run reaches a terminal state — successful completion, manual/limit stop, or error — the panel shows **התחל ריצה חדשה**.
+
+Restarting reuses the same loaded runner and panel but resets all run-specific state: counters, processed-turn tracking, step limits, queued intermediate messages, pending sends and handoff counters. Panel position, size and minimized preference remain intact. The start configuration is shown again so a different task can begin without reinjecting the bookmarklet.
+
+Programmatic restart:
+
+```js
+__sequenceRunner.restart()
+```
+
 ### Run limits
 
 The panel supports two safe stop controls:
