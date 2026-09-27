@@ -242,6 +242,9 @@ Behavior:
 - If only the current chat segment is complete, the assistant writes `סיימתי` immediately before the handoff block.
 - A bare final `סיימתי` is reserved for the true end of the complete sequence.
 - If the assistant says another chat is ready, assigned or still contains work, it must include the handoff block instead of ending with bare `סיימתי`.
+- The assistant may also decide on its own to hand off when a fresh chat would materially improve focus, precision or continuation quality — for example after a long/loaded chat, when the current topic is exhausted, when a substantially different stage begins, or when most old context is no longer needed.
+- Finishing an ordinary step is not by itself a reason to open a new chat.
+- The next-chat prompt is self-contained: it carries completed work, current state, remaining work, the exact next step and any important constraints or decisions.
 - The handoff block must be the final content in the assistant response.
 - The prompt between the `NEXT_CHAT_PROMPT` markers must be non-empty.
 - Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
