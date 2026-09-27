@@ -254,7 +254,7 @@ A valid handoff response ends with:
 [[SEQUENCE_RUNNER_NEW_CHAT]]
 בשלב זה מומלץ לעבור לצ'אט חדש.
 [[NEXT_CHAT_PROMPT]]
-...self-contained continuation prompt...
+...minimal sufficient continuation prompt...
 [[/NEXT_CHAT_PROMPT]]
 [[/SEQUENCE_RUNNER_NEW_CHAT]]
 ```
@@ -267,7 +267,7 @@ Rules:
 - If the response says or records that another chat is ready, assigned or still has work, it must not end with bare `סיימתי`; it must include the handoff block.
 - The assistant should proactively choose a handoff when a new chat would materially improve focus, precision or continuation quality, including when the current chat has accumulated a lot of messages/work/context, the current topic is exhausted, a materially different stage begins, or most old context is no longer useful.
 - Do not hand off merely because an ordinary step completed. If a fresh chat has no real benefit, continue in the current chat.
-- The handoff prompt must be self-contained and include what is already done, current state, remaining work, the exact next step, and important constraints/decisions.
+- The handoff prompt must be minimal but sufficient. Prefer a short bootstrap/pointer when a verified durable source of truth can reconstruct the current state. Do not duplicate recoverable project state. If essential context is missing, persist it to the canonical source when appropriate or include only the missing context in the handoff.
 - The handoff block must be the final content of the newly completed assistant response.
 - The next-chat prompt must be non-empty.
 - Malformed handoff markers are an error; do not silently treat them as ordinary continuation.
@@ -277,7 +277,7 @@ Rules:
 - Outside a Project, use the visible general New chat action.
 - After clicking New chat, wait for the URL to change before touching the composer. This avoids the old-composer SPA race observed during probing.
 - Only after navigation has completed may the new empty visible composer be used.
-- Send the extracted continuation context together with the standard runner continuation/completion/handoff contract so later rollovers still work.
+- Treat the extracted continuation text as a new task in the fresh chat: wrap it with the same new-task opening format and standard runner continuation/completion/handoff contract so later completion and rollovers still work.
 - Do not construct Project conversation URLs manually when a verified UI action is available.
 
 ### Manual stop

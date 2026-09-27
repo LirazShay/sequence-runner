@@ -230,7 +230,7 @@ The runner can continue a sequence in a fresh chat when the assistant explicitly
 [[SEQUENCE_RUNNER_NEW_CHAT]]
 בשלב זה מומלץ לעבור לצ'אט חדש.
 [[NEXT_CHAT_PROMPT]]
-...self-contained prompt for the next chat...
+...minimal sufficient prompt for the next chat...
 [[/NEXT_CHAT_PROMPT]]
 [[/SEQUENCE_RUNNER_NEW_CHAT]]
 ```
@@ -244,13 +244,13 @@ Behavior:
 - If the assistant says another chat is ready, assigned or still contains work, it must include the handoff block instead of ending with bare `סיימתי`.
 - The assistant may also decide on its own to hand off when a fresh chat would materially improve focus, precision or continuation quality — for example after a long/loaded chat, when the current topic is exhausted, when a substantially different stage begins, or when most old context is no longer needed.
 - Finishing an ordinary step is not by itself a reason to open a new chat.
-- The next-chat prompt is self-contained: it carries completed work, current state, remaining work, the exact next step and any important constraints or decisions.
+- The next-chat prompt is **minimal but sufficient**. If a durable source of truth (for example repository status/execution/handoff docs) can reliably reconstruct the current state, the assistant must verify that source first and then avoid duplicating recoverable state in the handoff. Missing essential context is persisted there when appropriate, or only that missing context is included in the handoff.
 - The handoff block must be the final content in the assistant response.
 - The prompt between the `NEXT_CHAT_PROMPT` markers must be non-empty.
 - Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition.
-- The extracted handoff prompt is sent in the new chat together with the same sequence/completion/handoff contract, so additional rollovers remain possible.
+- The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.
 - Runner counters, step limits and queued messages remain in the same in-page runner session across the SPA navigation.
 - A malformed handoff marker block stops with an error instead of silently continuing.
 - Priority at a response boundary remains: explicit step limit, malformed-handoff safety check, due intermediate message, valid handoff, normal completion, ordinary continuation.
