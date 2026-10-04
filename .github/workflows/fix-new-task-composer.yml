@@ -4,13 +4,19 @@ on:
   push:
     branches:
       - fix/new-task-composer-insertion
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +32,10 @@ jobs:
 
           path = Path("runner.js")
           text = path.read_text(encoding="utf-8")
+
+          if '    const VERSION = "3.16";' in text:
+              print("runner.js is already patched")
+              raise SystemExit(0)
 
           old_version = '    const VERSION = "3.15";'
           new_version = '    const VERSION = "3.16";'
@@ -290,6 +300,10 @@ jobs:
       - name: Validate and regenerate bookmarklet
         shell: bash
         run: |
+          if grep -q 'const VERSION = "3.15"' runner.js; then
+            echo "Patch did not update the runner version" >&2
+            exit 1
+          fi
           node --check runner.js
           npx --yes terser@5 runner.js -o /tmp/runner.payload.js
           node --check /tmp/runner.payload.js
@@ -310,6 +324,10 @@ jobs:
           git config user.name "sequence-runner-fix-bot"
           git config user.email "sequence-runner-fix-bot@users.noreply.github.com"
           git add runner.js runner.min.js
+          if git diff --cached --quiet; then
+            echo "No runner changes to commit"
+            exit 0
+          fi
           git diff --cached --check
           git commit -m "Fix reliable composer insertion for long prompts [skip ci]"
           git push origin HEAD:fix/new-task-composer-insertion
