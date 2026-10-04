@@ -1,0 +1,315 @@
+name: Temporary composer insertion fix
+
+on:
+  push:
+    branches:
+      - fix/new-task-composer-insertion
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/new-task-composer-insertion
+          fetch-depth: 0
+
+      - name: Patch runner source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("runner.js")
+          text = path.read_text(encoding="utf-8")
+
+          old_version = '    const VERSION = "3.15";'
+          new_version = '    const VERSION = "3.16";'
+          if text.count(old_version) != 1:
+              raise SystemExit("Expected exactly one VERSION 3.15 marker")
+          text = text.replace(old_version, new_version, 1)
+
+          old_config = '''        UI_REFRESH_MS: 1000,
+                  WATCHDOG_MS: 400,
+                  CONTINUE_DELAY_MS: 350'''.replace('                  ', '        ')
+          new_config = '''        UI_REFRESH_MS: 1000,
+                  WATCHDOG_MS: 400,
+                  COMPOSER_INSERT_VERIFY_TIMEOUT_MS: 1500,
+                  COMPOSER_CLEAR_VERIFY_TIMEOUT_MS: 750,
+                  CONTINUE_DELAY_MS: 350'''.replace('                  ', '        ')
+          if text.count(old_config) != 1:
+              raise SystemExit("Expected composer timing config anchor once")
+          text = text.replace(old_config, new_config, 1)
+
+          old_block = '''    function clearComposer(composer) {
+              composer.focus();
+
+              try {
+                  document.execCommand("selectAll", false, null);
+              } catch (_) {}
+
+              try {
+                  document.execCommand("delete", false, null);
+              } catch (_) {}
+          }
+
+          async function setComposerText(text) {
+              const composer = getComposer();
+
+              if (!composer) {
+                  throw new Error("Composer not found.");
+              }
+
+              const existing = normalizeText(
+                  composer.innerText ||
+                      composer.textContent ||
+                      composer.value ||
+                      ""
+              );
+
+              if (existing) {
+                  const error = new Error(
+                      "Composer is not empty; refusing to overwrite existing text."
+                  );
+                  error.code = "COMPOSER_NOT_EMPTY";
+                  throw error;
+              }
+
+              composer.focus();
+
+              let pasteWorked = false;
+
+              try {
+                  const dt = new DataTransfer();
+                  dt.setData("text/plain", text);
+
+                  composer.dispatchEvent(
+                      new ClipboardEvent("paste", {
+                          clipboardData: dt,
+                          bubbles: true,
+                          cancelable: true
+                      })
+                  );
+
+                  await sleep(120);
+
+                  pasteWorked =
+                      normalizeText(
+                          composer.innerText ||
+                              composer.textContent ||
+                              composer.value ||
+                              ""
+                      ) === normalizeText(text);
+              } catch (_) {}
+
+              if (pasteWorked) {
+                  return composer;
+              }
+
+              clearComposer(composer);
+              await sleep(50);
+              composer.focus();
+
+              let inserted = false;
+
+              try {
+                  inserted = document.execCommand("insertText", false, text);
+              } catch (_) {}
+
+              await sleep(120);
+
+              const actual = normalizeText(
+                  composer.innerText ||
+                      composer.textContent ||
+                      composer.value ||
+                      ""
+              );
+
+              if (!inserted || actual !== normalizeText(text)) {
+                  throw new Error(
+                      "Could not reliably insert prompt into the composer."
+                  );
+              }
+
+              return composer;
+          }'''.replace('\n          ', '\n    ')
+
+          new_block = '''    function getComposerElementText(composer) {
+              return normalizeText(
+                  composer?.innerText ||
+                      composer?.textContent ||
+                      composer?.value ||
+                      ""
+              );
+          }
+
+          function createComposerOccupiedError(message) {
+              const error = new Error(
+                  message ||
+                      "Composer is not empty; refusing to overwrite existing text."
+              );
+              error.code = "COMPOSER_NOT_EMPTY";
+              return error;
+          }
+
+          function clearComposer(composer) {
+              composer.focus();
+
+              try {
+                  document.execCommand("selectAll", false, null);
+              } catch (_) {}
+
+              try {
+                  document.execCommand("delete", false, null);
+              } catch (_) {}
+          }
+
+          async function waitForComposerText(composer, expected) {
+              return !!(await waitUntil(
+                  function () {
+                      return getComposerElementText(composer) === expected
+                          ? composer
+                          : null;
+                  },
+                  CONFIG.COMPOSER_INSERT_VERIFY_TIMEOUT_MS,
+                  40
+              ));
+          }
+
+          async function clearComposerAndWait(composer) {
+              clearComposer(composer);
+
+              return !!(await waitUntil(
+                  function () {
+                      return getComposerElementText(composer)
+                          ? null
+                          : true;
+                  },
+                  CONFIG.COMPOSER_CLEAR_VERIFY_TIMEOUT_MS,
+                  40
+              ));
+          }
+
+          async function setComposerText(text) {
+              const composer = getComposer();
+
+              if (!composer) {
+                  throw new Error("Composer not found.");
+              }
+
+              const expected = normalizeText(text);
+              const existing = getComposerElementText(composer);
+
+              if (existing) {
+                  throw createComposerOccupiedError();
+              }
+
+              composer.focus();
+
+              try {
+                  const dt = new DataTransfer();
+                  dt.setData("text/plain", text);
+
+                  composer.dispatchEvent(
+                      new ClipboardEvent("paste", {
+                          clipboardData: dt,
+                          bubbles: true,
+                          cancelable: true
+                      })
+                  );
+              } catch (_) {}
+
+              if (await waitForComposerText(composer, expected)) {
+                  return composer;
+              }
+
+              const pastedText = getComposerElementText(composer);
+
+              if (
+                  pastedText &&
+                  !expected.startsWith(pastedText)
+              ) {
+                  throw createComposerOccupiedError(
+                      "Composer changed while inserting the prompt; refusing to overwrite existing text."
+                  );
+              }
+
+              if (
+                  pastedText &&
+                  !(await clearComposerAndWait(composer))
+              ) {
+                  throw new Error(
+                      "Could not clear the partial prompt from the composer."
+                  );
+              }
+
+              composer.focus();
+
+              try {
+                  document.execCommand("insertText", false, text);
+              } catch (_) {}
+
+              if (await waitForComposerText(composer, expected)) {
+                  return composer;
+              }
+
+              const actual = getComposerElementText(composer);
+
+              if (
+                  actual &&
+                  !expected.startsWith(actual)
+              ) {
+                  throw createComposerOccupiedError(
+                      "Composer changed while inserting the prompt; refusing to overwrite existing text."
+                  );
+              }
+
+              if (actual) {
+                  await clearComposerAndWait(composer);
+              }
+
+              throw new Error(
+                  "Could not reliably insert prompt into the composer."
+              );
+          }'''.replace('\n          ', '\n    ')
+
+          if text.count(old_block) != 1:
+              raise SystemExit("Expected old composer insertion block exactly once")
+          text = text.replace(old_block, new_block, 1)
+
+          if 'let inserted = false' in text or '!inserted ||' in text:
+              raise SystemExit("Deprecated execCommand return-value gate still present")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Validate and regenerate bookmarklet
+        shell: bash
+        run: |
+          node --check runner.js
+          npx --yes terser@5 runner.js -o /tmp/runner.payload.js
+          node --check /tmp/runner.payload.js
+          python3 - <<'PY'
+          from pathlib import Path
+          payload = Path('/tmp/runner.payload.js').read_text(encoding='utf-8').strip()
+          output = 'javascript:' + payload
+          if '\n' in output or '\r' in output:
+              raise SystemExit('runner.min.js must stay on exactly one line')
+          if not output.startswith('javascript:'):
+              raise SystemExit('runner.min.js must start with javascript:')
+          Path('runner.min.js').write_text(output, encoding='utf-8')
+          PY
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "sequence-runner-fix-bot"
+          git config user.email "sequence-runner-fix-bot@users.noreply.github.com"
+          git add runner.js runner.min.js
+          git diff --cached --check
+          git commit -m "Fix reliable composer insertion for long prompts [skip ci]"
+          git push origin HEAD:fix/new-task-composer-insertion
