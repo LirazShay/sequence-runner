@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.15";
+    const VERSION = "3.16";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -541,23 +541,32 @@
 
     function getComposer() {
         return (
-            document.querySelector(SELECTORS.composer) ||
-            document.querySelector("#prompt-textarea") ||
-            document.querySelector('div[contenteditable="true"][role="textbox"]')
+            getLastVisibleElement(
+                'form[data-chatgpt-composer] [contenteditable="true"][data-composer-markdown]'
+            ) ||
+            getLastVisibleElement(SELECTORS.composer) ||
+            getLastVisibleElement("#prompt-textarea") ||
+            getLastVisibleElement(
+                'div[contenteditable="true"][role="textbox"]'
+            )
         );
     }
 
     function getSendButton() {
         return (
-            document.querySelector(SELECTORS.sendButton) ||
-            document.querySelector('button[data-testid="send-button"]')
+            getLastVisibleElement(SELECTORS.sendButton) ||
+            getLastVisibleElement(
+                'button[data-testid="send-button"]'
+            )
         );
     }
 
     function getStopButton() {
         return (
-            document.querySelector(SELECTORS.stopButton) ||
-            document.querySelector('button[data-testid="stop-button"]')
+            getLastVisibleElement(SELECTORS.stopButton) ||
+            getLastVisibleElement(
+                'button[data-testid="stop-button"]'
+            )
         );
     }
 
@@ -578,6 +587,14 @@
             style.visibility !== "hidden" &&
             style.display !== "none"
         );
+    }
+
+    function getLastVisibleElement(selector) {
+        const candidates = [
+            ...document.querySelectorAll(selector)
+        ].filter(isElementVisible);
+
+        return candidates.at(-1) || null;
     }
 
     function isProjectChatPath() {
