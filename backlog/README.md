@@ -17,3 +17,5 @@ Each backlog item lives in its own Markdown document so the task can be discusse
 | ID | Task | Status |
 | --- | --- | --- |
 | 001 | [Version E2E Regression Suite](001-version-e2e-regression-suite.md) | Open |
+| 002 | [Rename Previous Chat on Handoff](002-rename-previous-chat-on-handoff.md) | Open |
+| 003 | [Split Runner into Modules](003-split-runner-into-modules.md) | Open |
