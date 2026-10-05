@@ -4,7 +4,11 @@ This directory contains the deterministic browser regression environment for `se
 
 ## Principle
 
-The E2E suite runs the real canonical `runner.js` against a controlled Mock ChatGPT browser page. The mock reproduces the DOM contracts and behaviors that the production runner integrates with; the runner itself is not mocked.
+The E2E suite runs the canonical `runner.js` logic against a controlled Mock ChatGPT browser page. The mock reproduces the DOM contracts and behaviors that the production runner integrates with; the runner itself is not mocked.
+
+For normal E2E loading, the fixture mechanically shortens only deterministic wall-clock constants such as response-stability, continuation delay, watchdog interval and handoff-ready delay. This keeps the exact production decisions and DOM logic while avoiding seconds of artificial waiting in every mock test. The replacement is assertion-guarded so a production timing rename/change cannot silently stop being accelerated.
+
+The dedicated bookmarklet boot test does **not** apply those timing replacements: it loads the committed `runner.min.js` artifact exactly as shipped.
 
 The intended maintenance loop is:
 
@@ -17,6 +21,16 @@ real bug
 ```
 
 Do not weaken production behavior to make a test pass. Fix the mock when the mock does not accurately reproduce the verified ChatGPT contract.
+
+## Speed budget
+
+The browser suite is intended to stay fast enough to run on every PR without becoming a development bottleneck.
+
+- CI runs the tests fully parallel with four workers.
+- The complete Playwright suite has a hard CI global budget of 30 seconds.
+- Prefer deterministic mock clocks/timing acceleration over real sleeps.
+- Do not reduce production safety delays merely to speed up tests.
+- A test that needs to validate a timing relationship should use proportionally shortened mock timing or a controlled clock while preserving the same ordering invariant.
 
 ## Commands
 
