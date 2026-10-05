@@ -110,7 +110,7 @@ test("final UI appearing before the last DOM mutation does not evaluate an incom
   });
 
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
-  await harness.waitForState("DONE");
+  await harness.waitForState("DONE", 5000);
 
   expect(await harness.sentMessages()).toHaveLength(1);
   const events = await harness.events();
