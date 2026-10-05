@@ -1,0 +1,210 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f7f7f8;
+  color: #202123;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+  min-height: 100vh;
+}
+
+.sidebar,
+.mock-panel {
+  padding: 16px;
+  background: #ececf1;
+  border-inline-end: 1px solid #d9d9e3;
+}
+
+.mock-panel {
+  border-inline-end: 0;
+  border-inline-start: 1px solid #d9d9e3;
+  background: #f2f2f4;
+}
+
+.sidebar button,
+.mock-panel button {
+  width: 100%;
+  margin-bottom: 8px;
+  border: 1px solid #c5c5d2;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.sidebar nav {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #d3d3dc;
+}
+
+.chat-area {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #fff;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 20px;
+  border-bottom: 1px solid #ececf1;
+}
+
+.chat-header code {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+#conversation {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 24px max(24px, calc((100% - 760px) / 2));
+}
+
+[data-turn-key] {
+  padding: 12px 0 18px;
+}
+
+[data-user-message-bubble="true"] {
+  width: fit-content;
+  max-width: 80%;
+  margin-left: auto;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: #f4f4f4;
+  white-space: pre-wrap;
+}
+
+[data-markdown-text-style="assistant-message"],
+[data-chatgpt-selection-message-id] {
+  margin-top: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.turn-actions {
+  margin-top: 8px;
+}
+
+.turn-actions button {
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+#thinking-controls {
+  min-height: 30px;
+  padding: 0 max(24px, calc((100% - 760px) / 2));
+}
+
+#thinking-controls button {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #fff;
+}
+
+form[data-chatgpt-composer] {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 10px auto 20px;
+  width: min(760px, calc(100% - 40px));
+  padding: 10px 12px;
+  border: 1px solid #d8d8df;
+  border-radius: 22px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: #fff;
+}
+
+[contenteditable="true"][data-composer-markdown] {
+  flex: 1 1 auto;
+  min-height: 28px;
+  max-height: 160px;
+  overflow-y: auto;
+  outline: none;
+  white-space: pre-wrap;
+}
+
+button[aria-label="Send"] {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  width: 34px;
+  height: 34px;
+  background: #111827;
+  color: white;
+  cursor: pointer;
+}
+
+.mock-panel h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.mock-panel p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.mock-panel textarea {
+  width: 100%;
+  min-height: 80px;
+  margin-bottom: 8px;
+  resize: vertical;
+}
+
+#mock-event-log {
+  height: 260px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #111827;
+  color: #d1fae5;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.stale-composer {
+  opacity: 0.7;
+}
+
+@media (max-width: 1000px) {
+  .app-shell {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .mock-panel {
+    display: none;
+  }
+}
