@@ -84,7 +84,8 @@ jobs:
           rm scripts/apply-work-style-temp.py
           git config user.name "Sequence Runner Bot"
           git config user.email "sequence-runner-bot@users.noreply.github.com"
-          git add -A
+          git add AGENTS.md README.md runner.js runner.min.js tests/e2e/core.spec.js tests/e2e/diagnostic.spec.js tests/e2e/handoff.spec.js
+          git add -u .github/workflows/apply-work-style-temp.yml scripts/apply-work-style-temp.py
           git diff --cached --check
           git commit -m "Add Steady and Deep work styles"
           git push origin HEAD:feature/work-style-flavours
