@@ -45,23 +45,34 @@ It opens the door to:
 
 The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Two deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, and the one-shot 10-minute long-running-response wake nudge.
 
-## Work style
+## Work style and decision mode
 
-The start panel exposes a per-run **Work Style** configuration with two deliberately simple flavours:
+The start panel exposes two independent per-run controls.
 
-- **Steady** (default) — tells the assistant to keep progressing naturally until a sensible stopping point. It removes the old `one step only` pressure without forcing a large work block.
-- **Deep** — tells the assistant to complete a substantial stage, including related sub-steps, checks and fixes, before stopping. It also strengthens chat-rollover planning: define natural boundaries, finish the current chat's work segment, decide what the next chat should own, persist durable state, and prefer a fresh chat when the next segment benefits from clean context.
+**Work Style** controls how much coherent work the assistant is encouraged to complete before a checkpoint:
 
-The word `שלב` and the continuation command `תמשיך לשלב הבא` remain part of the protocol; the style changes how much coherent work the assistant is encouraged to complete for that continuation. A selected style is preserved automatically across an automatic chat handoff.
+- **Steady** (default) — progress naturally, but organize work by goals and verifiable outcomes rather than tiny technical operations. It does not force a large block when one is unnecessary.
+- **Deep** — use the same goal/result segmentation, but push toward a substantial coherent stage that can include multiple related sub-steps, checks and fixes before stopping.
 
-Programmatic starts accept the same optional style (`"steady"` or `"deep"`):
+Both styles use the same core rule: one segment should pursue one clear goal, do the work needed to achieve it, verify the result, and then reach a checkpoint. In general, prefer a small number of meaningful segments over many tiny steps.
+
+**Decision Mode** controls whether significant choices interrupt the run:
+
+- **Autonomous** (default) — choose the best reasonable option from the goal and available evidence and continue. Ask only when essential information cannot reasonably be inferred or explicit user approval is required.
+- **Collaborative** — when a significant choice has multiple reasonable alternatives and materially affects the next work, stop at a checkpoint, show the options plus a recommendation, and wait for the user. Routine or safely inferable technical choices should not cause a stop.
+
+Checkpoint structure and chat rollover remain separate concerns. This change does not attempt to define a new formula for when to open a fresh chat; the existing rollover contract remains in force.
+
+The word `שלב` and the continuation command `תמשיך לשלב הבא` remain part of the protocol. Both the selected work style and decision mode are preserved automatically across an automatic handoff.
+
+Programmatic starts accept the same optional settings:
 
 ```js
-__sequenceRunner.startExistingContext("deep")
-__sequenceRunner.startWithTask("TASK_TEXT", "deep")
+__sequenceRunner.startExistingContext("deep", "autonomous")
+__sequenceRunner.startWithTask("TASK_TEXT", "steady", "collaborative")
 ```
 
-Unknown or omitted style values safely fall back to `steady`.
+Unknown or omitted values safely fall back to `steady` and `autonomous`.
 
 ## Technical design
 
