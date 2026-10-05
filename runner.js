@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.19";
+    const VERSION = "3.20";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -20,6 +20,8 @@
         FAST_RESPONSE_FALLBACK_MS: 2500,
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
+        LONG_WAIT_WAKE_AFTER_MS: 10 * 60 * 1000,
+        LONG_WAIT_WAKE_MESSAGE: "מה קורה?",
         UI_REFRESH_MS: 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
@@ -2918,8 +2920,18 @@
         }
     }
 
-    async function sendImmediateInjection(text) {
+    async function sendImmediateInjection(text, options) {
         const message = normalizeText(text);
+        const opts = options || {};
+        const cycleLabel = opts.label || "injection";
+        const source = opts.source || "user";
+        const countAsInjection =
+            opts.countAsInjection !== false;
+        const sentStatusMessage =
+            opts.sentStatusMessage ||
+            "⚡ הודעת ביניים נשלחה מיד; עוקב אחר התגובה החדשה...";
+        const sentStatusColor =
+            opts.sentStatusColor || "#b45309";
 
         if (!message) {
             throw new Error(
@@ -3027,7 +3039,7 @@
 
             currentCycle = {
                 id,
-                label: "injection",
+                label: cycleLabel,
                 prompt: message,
                 beforeKeys,
                 sentAt: Date.now(),
@@ -3037,24 +3049,33 @@
                 lastText: null,
                 lastTextChangedAt: 0,
                 longWaitNoticeBucket: -1,
+                activeGenerationStartedAt: null,
+                wakeState: "idle",
+                wakeThresholdReachedAt: null,
+                wakeDeferredReason: null,
+                wakeSentAt: null,
                 processed: false
             };
 
             record("send", {
                 id,
-                label: "injection",
+                label: cycleLabel,
                 beforeTurnCount:
                     beforeKeys.size,
-                immediate: true
+                immediate: true,
+                source
             });
 
             sendButton.click();
-            injectionSentCount++;
+
+            if (countAsInjection) {
+                injectionSentCount++;
+            }
 
             setState(
                 "WAITING_FOR_TURN",
-                "⚡ הודעת ביניים נשלחה מיד; עוקב אחר התגובה החדשה...",
-                "#b45309"
+                sentStatusMessage,
+                sentStatusColor
             );
 
             renderPanel();
@@ -3184,6 +3205,11 @@
             lastText: null,
             lastTextChangedAt: 0,
             longWaitNoticeBucket: -1,
+            activeGenerationStartedAt: null,
+            wakeState: "idle",
+            wakeThresholdReachedAt: null,
+            wakeDeferredReason: null,
+            wakeSentAt: null,
             processed: false
         };
 
@@ -3365,6 +3391,160 @@
                 fail(err.message, err);
             });
         }, CONFIG.CONTINUE_DELAY_MS);
+    }
+
+    function updateLongRunningWake(cycle, stopButton) {
+        const now = Date.now();
+
+        if (!stopButton) {
+            if (
+                cycle.activeGenerationStartedAt != null &&
+                cycle.wakeState !== "sent" &&
+                cycle.wakeState !== "sending"
+            ) {
+                if (cycle.wakeState === "deferred") {
+                    record("long-wait-wake-cancelled", {
+                        id: cycle.id,
+                        turnKey: cycle.turnKey,
+                        reason: "generation-ended-before-send"
+                    });
+                }
+
+                cycle.activeGenerationStartedAt = null;
+                cycle.wakeState = "idle";
+                cycle.wakeThresholdReachedAt = null;
+                cycle.wakeDeferredReason = null;
+            }
+
+            return false;
+        }
+
+        if (cycle.activeGenerationStartedAt == null) {
+            cycle.activeGenerationStartedAt = now;
+
+            record("generation-active-tracked", {
+                id: cycle.id,
+                turnKey: cycle.turnKey
+            });
+
+            return false;
+        }
+
+        const elapsedMs =
+            now - cycle.activeGenerationStartedAt;
+
+        if (
+            elapsedMs <
+            CONFIG.LONG_WAIT_WAKE_AFTER_MS
+        ) {
+            return false;
+        }
+
+        if (
+            cycle.wakeState === "sent" ||
+            cycle.wakeState === "sending" ||
+            cycle.wakeState === "failed"
+        ) {
+            return cycle.wakeState === "sending";
+        }
+
+        if (!cycle.wakeThresholdReachedAt) {
+            cycle.wakeThresholdReachedAt = now;
+
+            record("long-wait-wake-threshold", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                elapsedMs
+            });
+        }
+
+        let deferredReason = null;
+
+        if (getComposerText()) {
+            deferredReason = "composer-occupied";
+        } else {
+            const sendButton = getSendButton();
+
+            if (!sendButton || sendButton.disabled) {
+                deferredReason = "send-unavailable";
+            }
+        }
+
+        if (deferredReason) {
+            if (
+                cycle.wakeState !== "deferred" ||
+                cycle.wakeDeferredReason !== deferredReason
+            ) {
+                record("long-wait-wake-deferred", {
+                    id: cycle.id,
+                    turnKey: cycle.turnKey,
+                    reason: deferredReason,
+                    elapsedMs
+                });
+            }
+
+            cycle.wakeState = "deferred";
+            cycle.wakeDeferredReason = deferredReason;
+
+            setState(
+                "GENERATING",
+                deferredReason === "composer-occupied"
+                    ? "⏰ עברו 10 דקות; ממתין שתיבת ההודעה תתפנה לפני שליחת ‘מה קורה?’."
+                    : "⏰ עברו 10 דקות; ממתין שכפתור השליחה יהיה זמין לפני שליחת ‘מה קורה?’." ,
+                "#b45309"
+            );
+
+            return true;
+        }
+
+        cycle.wakeState = "sending";
+        cycle.wakeDeferredReason = null;
+
+        record("long-wait-wake-sending", {
+            id: cycle.id,
+            turnKey: cycle.turnKey,
+            elapsedMs
+        });
+
+        sendImmediateInjection(
+            CONFIG.LONG_WAIT_WAKE_MESSAGE,
+            {
+                label: "wake",
+                source: "long-wait-wake",
+                countAsInjection: false,
+                sentStatusMessage:
+                    "⏰ נשלח ‘מה קורה?’ אחרי 10 דקות של אותה תשובה; עוקב אחר התגובה החדשה...",
+                sentStatusColor: "#b45309"
+            }
+        ).then(function () {
+            cycle.wakeState = "sent";
+            cycle.wakeSentAt = Date.now();
+
+            record("long-wait-wake-sent", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                elapsedMs
+            });
+        }).catch(function (err) {
+            cycle.wakeState = "failed";
+
+            record("long-wait-wake-failed", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                elapsedMs,
+                error: err?.message || String(err || "")
+            });
+
+            if (!stopped && currentCycle === cycle) {
+                setState(
+                    "GENERATING",
+                    "⚠️ לא ניתן היה לשלוח את הודעת ההתעוררות בבטחה; ממשיך להמתין לתגובה.",
+                    "#b45309"
+                );
+            }
+        });
+
+        return true;
     }
 
     function completeCycle(cycle, text) {
@@ -3617,6 +3797,15 @@
                 id: cycle.id,
                 turnKey: cycle.turnKey
             });
+        }
+
+        if (
+            updateLongRunningWake(
+                cycle,
+                !!stopButton
+            )
+        ) {
+            return;
         }
 
         const finalUiSeen =
