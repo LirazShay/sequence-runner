@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mock ChatGPT — Sequence Runner Lab</title>
+  <link rel="stylesheet" href="/mock-chatgpt.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <strong>Mock ChatGPT</strong>
+      <p>Deterministic browser fixture for Sequence Runner.</p>
+
+      <button type="button" aria-label="New chat" data-mock-action="new-chat">New chat</button>
+      <button type="button" aria-label="New chat in Mock Project" data-mock-action="project-new-chat">New chat in Mock Project</button>
+
+      <nav aria-label="Breadcrumb">
+        <a href="/g/g-p-mock/project">Mock Project</a>
+      </nav>
+    </aside>
+
+    <main class="chat-area">
+      <header class="chat-header">
+        <strong>ChatGPT Mock</strong>
+        <code data-mock-role="route"></code>
+      </header>
+
+      <section id="conversation" aria-label="Conversation"></section>
+      <div id="thinking-controls"></div>
+
+      <form data-chatgpt-composer>
+        <div
+          id="prompt-textarea"
+          data-composer-markdown
+          contenteditable="true"
+          role="textbox"
+          aria-label="Message ChatGPT"
+        ></div>
+        <button type="button" aria-label="Send" data-testid="send-button">↑</button>
+      </form>
+    </main>
+
+    <aside class="mock-panel">
+      <h2>Scenario Lab</h2>
+      <p>These controls affect the next mocked Assistant response.</p>
+      <textarea data-mock-input="response-text">Mock response</textarea>
+      <button type="button" data-mock-action="enqueue-normal">Queue normal response</button>
+      <button type="button" data-mock-action="enqueue-stopped">Queue Stopped thinking</button>
+      <button type="button" data-mock-action="enqueue-hold">Queue endless generation</button>
+      <button type="button" data-mock-action="enqueue-handoff">Queue handoff response</button>
+      <button type="button" data-mock-action="reset">Reset mock</button>
+      <h2>Event timeline</h2>
+      <pre id="mock-event-log"></pre>
+    </aside>
+  </div>
+
+  <script src="/mock-chatgpt.js"></script>
+  <script>
+    if (new URLSearchParams(location.search).get("runner") === "1") {
+      const script = document.createElement("script");
+      script.src = "/runner.js";
+      document.body.appendChild(script);
+    }
+  </script>
+</body>
+</html>
