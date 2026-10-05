@@ -8,7 +8,7 @@ The E2E suite runs the canonical `runner.js` logic against a controlled Mock Cha
 
 For normal E2E loading, the fixture mechanically shortens only deterministic wall-clock constants such as response-stability, continuation delay, watchdog interval and handoff-ready delay. This keeps the exact production decisions and DOM logic while avoiding seconds of artificial waiting in every mock test. The replacement is assertion-guarded so a production timing rename/change cannot silently stop being accelerated.
 
-The dedicated bookmarklet boot test does **not** apply those timing replacements: it loads the committed `runner.min.js` artifact exactly as shipped.
+The dedicated bookmarklet boot test does **not** apply those timing replacements: it loads the committed `runner.min.js` artifact exactly as shipped. Timing-sensitive regression tests can also use `harness.loadCanonical()` to validate the real production timing contract instead of the accelerated profile.
 
 The intended maintenance loop is:
 
@@ -32,7 +32,7 @@ The browser suite is intended to stay fast enough to run on every PR without bec
 - Traces are recorded on the first retry rather than for every successful test.
 - Prefer deterministic mock clocks/timing acceleration over real sleeps.
 - Do not reduce production safety delays merely to speed up tests.
-- A test that needs to validate a timing relationship should use proportionally shortened mock timing or a controlled clock while preserving the same ordering invariant.
+- A test that needs to validate the actual production timing contract should use `harness.loadCanonical()`; otherwise use proportionally shortened mock timing or a controlled clock while preserving the same ordering invariant.
 
 ## Commands
 
