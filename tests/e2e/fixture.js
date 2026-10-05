@@ -39,12 +39,12 @@ function buildFastTestRunnerSource() {
 
   // The E2E lab is deterministic, so production wall-clock guards can be
   // shortened without changing runner decisions or DOM behavior under test.
-  source = replaceSingleTiming(source, "HANDOFF_MIN_READY_MS: 1000", "HANDOFF_MIN_READY_MS: 80");
-  source = replaceSingleTiming(source, "STABLE_MS: 900", "STABLE_MS: 220");
-  source = replaceSingleTiming(source, "FAST_RESPONSE_FALLBACK_MS: 2500", "FAST_RESPONSE_FALLBACK_MS: 450");
-  source = replaceSingleTiming(source, "UI_REFRESH_MS: 1000", "UI_REFRESH_MS: 100");
-  source = replaceSingleTiming(source, "WATCHDOG_MS: 400", "WATCHDOG_MS: 50");
-  source = replaceSingleTiming(source, "CONTINUE_DELAY_MS: 350", "CONTINUE_DELAY_MS: 40");
+  source = replaceSingleTiming(source, "HANDOFF_MIN_READY_MS: 1000", "HANDOFF_MIN_READY_MS: 20");
+  source = replaceSingleTiming(source, "STABLE_MS: 900", "STABLE_MS: 80");
+  source = replaceSingleTiming(source, "FAST_RESPONSE_FALLBACK_MS: 2500", "FAST_RESPONSE_FALLBACK_MS: 150");
+  source = replaceSingleTiming(source, "UI_REFRESH_MS: 1000", "UI_REFRESH_MS: 50");
+  source = replaceSingleTiming(source, "WATCHDOG_MS: 400", "WATCHDOG_MS: 20");
+  source = replaceSingleTiming(source, "CONTINUE_DELAY_MS: 350", "CONTINUE_DELAY_MS: 10");
 
   return source;
 }
@@ -118,7 +118,7 @@ export const test = base.extend({
         return page.evaluate(() => window.__sequenceRunner.getState());
       },
 
-      async waitForState(expectedState, timeout = 3500) {
+      async waitForState(expectedState, timeout = 2500) {
         await expect.poll(
           () => page.evaluate(() => window.__sequenceRunner.getState().state),
           { timeout }
@@ -129,7 +129,7 @@ export const test = base.extend({
         return page.evaluate(() => window.__mockChatGPT.getSentMessages());
       },
 
-      async waitForSentCount(count, timeout = 3500) {
+      async waitForSentCount(count, timeout = 2500) {
         await expect.poll(
           () => page.evaluate(() => window.__mockChatGPT.getSentMessages().length),
           { timeout }
