@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.16";
+    const VERSION = "3.17";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -15,6 +15,7 @@
         HANDOFF_PROMPT_START: "[[NEXT_CHAT_PROMPT]]",
         HANDOFF_PROMPT_END: "[[/NEXT_CHAT_PROMPT]]",
         NAVIGATION_TIMEOUT_MS: 15000,
+        HANDOFF_MIN_READY_MS: 1000,
         STABLE_MS: 900,
         FAST_RESPONSE_FALLBACK_MS: 2500,
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
@@ -698,6 +699,15 @@
         const oldComposer =
             getComposer();
 
+        const oldTurnKeys = new Set(
+            getTurns()
+                .map(getTurnKey)
+                .filter(Boolean)
+        );
+
+        const navigationStartedAt =
+            Date.now();
+
         target.button.click();
 
         const newUrl = await waitUntil(
@@ -717,10 +727,36 @@
             );
         }
 
-        await sleep(150);
+        const remainingMinimumWait =
+            CONFIG.HANDOFF_MIN_READY_MS -
+            (Date.now() - navigationStartedAt);
+
+        if (remainingMinimumWait > 0) {
+            await sleep(
+                remainingMinimumWait
+            );
+        }
 
         const composer = await waitUntil(
             function () {
+                const oldTurnStillVisible =
+                    getTurns().some(
+                        function (turn) {
+                            const key =
+                                getTurnKey(turn);
+
+                            return (
+                                key &&
+                                oldTurnKeys.has(key) &&
+                                isElementVisible(turn)
+                            );
+                        }
+                    );
+
+                if (oldTurnStillVisible) {
+                    return null;
+                }
+
                 const candidate =
                     getComposer();
 
@@ -751,7 +787,7 @@
 
         if (!composer) {
             throw new Error(
-                "The composer for the new chat did not become ready."
+                "The old chat did not clear or the new composer did not become ready."
             );
         }
 
