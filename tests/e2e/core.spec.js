@@ -15,6 +15,8 @@ test("canonical runner completes a normal multi-step sequence", async ({ harness
   const sent = await harness.sentMessages();
   expect(sent).toHaveLength(2);
   expect(sent[0]).toContain("בכל פעם שאכתוב 'תמשיך לשלב הבא'");
+  expect(sent[0]).toContain("המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית.");
+  expect(sent[0]).not.toContain("תתקדם שלב אחד בלבד");
   expect(sent[1]).toBe("תמשיך לשלב הבא");
 });
 
@@ -65,6 +67,28 @@ test("new-task mode embeds the task into the first runner prompt", async ({ harn
   expect(firstPrompt).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
 });
 
+test("work-style selector can start a Deep run", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [{ type: "normal", text: "סיימתי" }]
+  });
+
+  const workStyle = harness.page.locator('[data-input="work-style"]');
+  await expect(workStyle).toHaveValue("steady");
+  await workStyle.selectOption("deep");
+  await harness.page.locator('[data-action="start-run"]').click();
+  await harness.waitForState("DONE");
+
+  const [firstPrompt] = await harness.sentMessages();
+  expect(firstPrompt).toContain("התקדם שלב משמעותי אחד");
+  expect(firstPrompt).toContain("אל תעצור אחרי פעולה טכנית קטנה בלבד");
+  expect(firstPrompt).toContain("קבע נקודות מעבר טבעיות");
+  expect(firstPrompt).not.toContain("תתקדם שלב אחד בלבד");
+
+  const state = await harness.runnerState();
+  expect(state.workStyle).toBe("deep");
+});
+
 test("committed bookmarklet artifact boots the same runner in a browser", async ({ harness }) => {
   await harness.loadBookmarklet();
 
@@ -75,7 +99,7 @@ test("committed bookmarklet artifact boots the same runner in a browser", async 
   }));
 
   expect(result).toEqual({
-    version: "3.23",
+    version: "3.24",
     state: "READY_TO_START",
     panel: true
   });

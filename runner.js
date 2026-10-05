@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.23";
+    const VERSION = "3.24";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -125,9 +125,13 @@
         '<option value="existing">המשימה כבר ניתנה בצ׳אט</option>',
         '<option value="new">משימה חדשה — שלב אותה בהודעה הראשונה</option>',
         '</select>',
+        '<select data-input="work-style" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
+        '<option value="steady">Steady — התקדמות טבעית</option>',
+        '<option value="deep">Deep — עבודה עמוקה ומקטעים משמעותיים</option>',
+        '</select>',
         '<textarea data-input="task-text" rows="4" placeholder="כתוב כאן את המשימה..." style="display:none;width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
         '<button type="button" data-action="start-run" style="width:100%;border:0;background:#15803d;color:#fff;border-radius:6px;padding:7px;cursor:pointer;font-weight:700">התחל ריצה</button>',
-        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה יחד עם כללי ההמשך והסיום.</div>',
+        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">Steady מתקדם בקצב טבעי. Deep מבצע מקטע משמעותי בכל המשך ומעודד מעבר לצ׳אט חדש בנקודות עבודה טבעיות. במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה.</div>',
         '</div>',
         '<div data-role="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px"></div>',
         '<button type="button" data-action="restart-run" style="display:none;width:100%;border:0;background:#0f766e;color:#fff;border-radius:6px;padding:8px;cursor:pointer;font-weight:700;margin-bottom:10px">התחל ריצה חדשה</button>',
@@ -222,6 +226,7 @@
     let runStarted = false;
     let selectedTaskMode = "existing";
     let selectedTaskText = "";
+    let selectedWorkStyle = "steady";
     let runnerStartedAt = null;
     let injectionSeq = 0;
     let injectionSentCount = 0;
@@ -299,6 +304,12 @@
             .trim();
     }
 
+    function normalizeWorkStyle(value) {
+        return value === "deep"
+            ? "deep"
+            : "steady";
+    }
+
     function isDone(text) {
         const lines = normalizeText(text)
             .split(/\n+/)
@@ -323,9 +334,25 @@
         ).test(lastLine);
     }
 
-    function getRunnerControlLines(startInstruction) {
+    function getRunnerControlLines(
+        startInstruction,
+        workStyle
+    ) {
+        const style =
+            normalizeWorkStyle(workStyle);
+
+        const workInstruction =
+            style === "deep"
+                ? "בכל פעם שאכתוב 'תמשיך לשלב הבא', התקדם שלב משמעותי אחד, ובתוכו בצע ברצף את כל תתי־השלבים, הבדיקות והתיקונים הנחוצים כדי להגיע לנקודת עצירה טבעית. אל תעצור אחרי פעולה טכנית קטנה בלבד."
+                : "בכל פעם שאכתוב 'תמשיך לשלב הבא', המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית.";
+
+        const handoffInstruction =
+            style === "deep"
+                ? "במצב Deep, תכנן את העבודה במקטעים משמעותיים שמתאימים לצ'אט אחד. קבע נקודות מעבר טבעיות: מה הצ'אט הנוכחי צריך לסיים ומה הצ'אט הבא אמור לקחת. כאשר מקטע משמעותי הושלם והמשך העבודה עובר לשלב חדש, לנושא נפרד, או שצ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך — העדף לעבור לצ'אט חדש."
+                : "עבור לצ'אט חדש כאשר המעבר תוכנן מראש, או כאשר צ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך. אל תעבור רק משום שהסתיים שלב רגיל.";
+
         return [
-            "בכל פעם שאכתוב 'תמשיך לשלב הבא', תתקדם שלב אחד בלבד.",
+            workInstruction,
             "",
             "אל תכתוב 'סיימתי' בסוף שלב רגיל.",
             "",
@@ -343,7 +370,7 @@
             CONFIG.HANDOFF_PROMPT_END,
             CONFIG.HANDOFF_OUTER_END,
             "",
-            "עבור לצ'אט חדש כאשר המעבר תוכנן מראש, או כאשר צ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך. אל תעבור רק משום שהסתיים שלב רגיל.",
+            handoffInstruction,
             "",
             "בעת יצירת NEXT_CHAT_PROMPT, העדף שמירת כל מידע מתמשך במקור אמת חיצוני ומתועד, ועדכן אותו לפני המעבר אם חסר בו מידע חשוב. בפרומפט עצמו כלול רק מידע חיוני שלא ניתן לשחזר משם.",
             "",
@@ -357,7 +384,14 @@
         ];
     }
 
-    function buildFirstPrompt(mode, taskText) {
+    function buildFirstPrompt(
+        mode,
+        taskText,
+        workStyle
+    ) {
+        const style =
+            normalizeWorkStyle(workStyle);
+
         const startInstruction =
             mode === "new"
                 ? "עכשיו, התחל לבצע את המשימה והתקדם לשלב הראשון."
@@ -365,7 +399,8 @@
 
         if (mode !== "new") {
             return getRunnerControlLines(
-                startInstruction
+                startInstruction,
+                style
             ).join("\n");
         }
 
@@ -382,7 +417,8 @@
             task,
             "",
             ...getRunnerControlLines(
-                startInstruction
+                startInstruction,
+                style
             )
         ].join("\n");
     }
@@ -399,7 +435,8 @@
 
         return buildFirstPrompt(
             "new",
-            prompt
+            prompt,
+            selectedWorkStyle
         );
     }
 
@@ -2285,6 +2322,7 @@
                 pendingAutoSendLocked,
                 runStarted,
                 taskMode: selectedTaskMode,
+                workStyle: selectedWorkStyle,
                 currentCycle: diagnosticCycleSnapshot(currentCycle),
                 completedResponseCount,
                 continuationCount,
@@ -2435,6 +2473,10 @@
             '[data-input="task-text"]'
         );
 
+        const workStyleSelect = panel.querySelector(
+            '[data-input="work-style"]'
+        );
+
         taskModeSelect?.addEventListener(
             "change",
             function () {
@@ -2454,7 +2496,8 @@
             function () {
                 beginRun(
                     taskModeSelect?.value || "existing",
-                    taskTextArea?.value || ""
+                    taskTextArea?.value || "",
+                    workStyleSelect?.value || "steady"
                 ).catch(function (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -3223,6 +3266,10 @@
             '[data-input="task-text"]'
         );
 
+        const workStyle = panel.querySelector(
+            '[data-input="work-style"]'
+        );
+
         const inputs = [
             '[data-input="injection-text"]',
             '[data-input="injection-after"]',
@@ -3232,6 +3279,10 @@
 
         if (taskMode) {
             taskMode.value = "existing";
+        }
+
+        if (workStyle) {
+            workStyle.value = "steady";
         }
 
         if (taskText) {
@@ -3280,6 +3331,7 @@
         runStarted = false;
         selectedTaskMode = "existing";
         selectedTaskText = "";
+        selectedWorkStyle = "steady";
         runnerStartedAt = null;
         injectionSeq = 0;
         injectionSentCount = 0;
@@ -4590,7 +4642,11 @@ function getComposerText() {
         }, 0);
     }
 
-    async function beginRun(mode, taskText) {
+    async function beginRun(
+        mode,
+        taskText,
+        workStyle
+    ) {
         if (stopped) {
             throw new Error(
                 "The runner has already stopped."
@@ -4603,8 +4659,15 @@ function getComposerText() {
             );
         }
 
+        const style =
+            normalizeWorkStyle(workStyle);
+
         const firstPrompt =
-            buildFirstPrompt(mode, taskText);
+            buildFirstPrompt(
+                mode,
+                taskText,
+                style
+            );
 
         selectedTaskMode =
             mode === "new" ? "new" : "existing";
@@ -4614,11 +4677,14 @@ function getComposerText() {
                 ? normalizeText(taskText)
                 : "";
 
+        selectedWorkStyle = style;
+
         runStarted = true;
         runnerStartedAt = Date.now();
 
         record("run-started", {
             taskMode: selectedTaskMode,
+            workStyle: selectedWorkStyle,
             hasTaskText:
                 !!selectedTaskText
         });
@@ -4734,6 +4800,7 @@ function getComposerText() {
                 completedResponseCount,
                 runStarted,
                 taskMode: selectedTaskMode,
+                workStyle: selectedWorkStyle,
                 queuedIntermediateMessages:
                     injectionQueue.length,
                 injectionSentCount,
@@ -4827,16 +4894,18 @@ function getComposerText() {
         clearStepLimit,
         restart:
             restartRunner,
-        startExistingContext: function () {
+        startExistingContext: function (workStyle) {
             return beginRun(
                 "existing",
-                ""
+                "",
+                workStyle
             );
         },
-        startWithTask: function (taskText) {
+        startWithTask: function (taskText, workStyle) {
             return beginRun(
                 "new",
-                taskText
+                taskText,
+                workStyle
             );
         },
         sendMessageImmediately:

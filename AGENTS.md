@@ -36,6 +36,13 @@ Current workflow configuration:
 - A bare final `סיימתי` means the entire sequence is complete.
 - When the current chat is complete but work must continue in a new chat, the assistant is instructed to write `סיימתי` and then the valid handoff block. Because the handoff block is the final content, the runner continues instead of treating that local chat completion as global completion.
 
+Work style is a per-run prompt contract:
+
+- `steady` is the default. It asks the assistant to progress naturally to a sensible stopping point and must not reintroduce the old `תתקדם שלב אחד בלבד` wording.
+- `deep` asks for a substantial stage of work, including related sub-steps, checks and fixes, before stopping. It also strengthens rollover planning: define natural chat boundaries, close the current work segment, decide what the next chat should own, persist durable state, and prefer a fresh chat when that improves focus.
+- Keep the continuation command and the concept of `שלב`; work style changes the intended amount of coherent work, not the runner state-machine protocol.
+- Preserve the selected work style across automatic handoff so the fresh chat receives the same work-depth contract.
+
 The longer-term product direction is a generic sequence/workflow runner, not a script hard-coded forever to one Hebrew prompt.
 
 ## Source of truth
