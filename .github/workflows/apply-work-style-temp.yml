@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Correct temporary helper occurrence handling
+      - name: Make temporary helper context-specific
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -35,21 +35,59 @@ jobs:
           path = Path("scripts/apply-work-style-temp.py")
           text = path.read_text(encoding="utf-8")
 
-          marker = '    "diagnostic/public work-style state",\n)\n'
-          marker_pos = text.index(marker)
-          expected_pos = text.rfind("    2,\n", 0, marker_pos)
-          if expected_pos < 0:
-              raise RuntimeError("Could not find diagnostic/public expected-count literal")
-          text = text[:expected_pos] + "    3,\n" + text[expected_pos + len("    2,\n"):]
+          label_pos = text.index('"diagnostic/public work-style state"')
+          block_start = text.rfind("runner = replace_all_exact(\n", 0, label_pos)
+          if block_start < 0:
+              raise RuntimeError("Could not locate broad taskMode replacement")
 
-          block_start = text.index("runner = replace_once(\n", marker_pos + len(marker))
-          block_end_marker = '    "run-started work style",\n)\n\n'
-          block_end = text.index(block_end_marker, block_start) + len(block_end_marker)
-          block = text[block_start:block_end]
-          if "hasTaskText" not in block:
-              raise RuntimeError("Unexpected block after diagnostic/public replacement")
-          text = text[:block_start] + text[block_end:]
+          end_marker = '    "run-started work style",\n)\n\n'
+          block_end = text.index(end_marker, label_pos) + len(end_marker)
 
+          replacement = """runner = replace_once(
+              runner,
+              '''                runStarted,
+                              taskMode: selectedTaskMode,
+                              currentCycle:
+          ''',
+              '''                runStarted,
+                              taskMode: selectedTaskMode,
+                              workStyle: selectedWorkStyle,
+                              currentCycle:
+          ''',
+              "diagnostic work-style state",
+          )
+
+          runner = replace_once(
+              runner,
+              '''                runStarted,
+                              taskMode: selectedTaskMode,
+                              queuedIntermediateMessages:
+          ''',
+              '''                runStarted,
+                              taskMode: selectedTaskMode,
+                              workStyle: selectedWorkStyle,
+                              queuedIntermediateMessages:
+          ''',
+              "public work-style state",
+          )
+
+          runner = replace_once(
+              runner,
+              '''        record("run-started", {
+                      taskMode: selectedTaskMode,
+                      hasTaskText:
+          ''',
+              '''        record("run-started", {
+                      taskMode: selectedTaskMode,
+                      workStyle: selectedWorkStyle,
+                      hasTaskText:
+          ''',
+              "run-started work style",
+          )
+
+          """
+
+          text = text[:block_start] + replacement + text[block_end:]
           path.write_text(text, encoding="utf-8")
           PY
 
