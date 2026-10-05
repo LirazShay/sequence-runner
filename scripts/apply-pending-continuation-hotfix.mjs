@@ -275,7 +275,7 @@ function patchRunner() {
     "busy defer baseline"
   );
 
-  source = replaceOnce(
+  source = replaceAllRequired(
     source,
     `                deferAutoSend(
                     prompt,
@@ -290,36 +290,36 @@ function patchRunner() {
                     deferBaselineTurnKeys
                 );
 `,
-    "composer defer baseline pre-insert"
+    "composer defer baseline"
   );
 
   source = replaceOnce(
     source,
-    `                deferAutoSend(
-                    prompt,
-                    label,
-                    "composer-occupied"
-                );
-                return false;
-`,
-    `                deferAutoSend(
-                    prompt,
-                    label,
-                    "composer-occupied",
-                    deferBaselineTurnKeys
-                );
-                return false;
-`,
-    "composer defer baseline insertion error"
-  );
+    `        continuationCount++;
 
-  source = replaceOnce(
-    source,
-    `        const completedCycle = cycle;
+        setState(
+            "READY_TO_CONTINUE",
+            "🔎 Response #" +
+                continuationCount +
+                " complete; continuing...",
+            "#17a2b8"
+        );
+
+        const completedCycle = cycle;
 
         setTimeout(function () {
 `,
-    `        const completedCycle = cycle;
+    `        continuationCount++;
+
+        setState(
+            "READY_TO_CONTINUE",
+            "🔎 Response #" +
+                continuationCount +
+                " complete; continuing...",
+            "#17a2b8"
+        );
+
+        const completedCycle = cycle;
         const continuationBaselineTurnKeys =
             new Set(
                 getTurns()
