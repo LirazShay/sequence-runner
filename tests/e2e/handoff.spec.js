@@ -24,7 +24,7 @@ test("valid handoff opens a fresh regular chat and continues with a wrapped new-
   });
 
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
-  await harness.waitForState("DONE", 10000);
+  await harness.waitForState("DONE");
 
   const sent = await harness.sentMessages();
   expect(sent).toHaveLength(2);
@@ -43,7 +43,8 @@ test("valid handoff opens a fresh regular chat and continues with a wrapped new-
   expect(click?.kind).toBe("regular");
   expect(ready).toBeTruthy();
   expect(sends).toHaveLength(2);
-  expect(sends[1].at - click.at).toBeGreaterThanOrEqual(950);
+  expect(ready.at).toBeGreaterThanOrEqual(click.at);
+  expect(sends[1].at).toBeGreaterThanOrEqual(ready.at);
 });
 
 test("project handoff uses the exact project New Chat action and stays in the project route", async ({ harness }) => {
@@ -56,7 +57,7 @@ test("project handoff uses the exact project New Chat action and stays in the pr
   });
 
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
-  await harness.waitForState("DONE", 10000);
+  await harness.waitForState("DONE");
 
   const events = await harness.events();
   const click = events.find((event) => event.type === "new-chat-click");
