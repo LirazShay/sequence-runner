@@ -66,6 +66,18 @@ replace_once(
     "core version expectation",
 )
 
+diagnostic_path = Path("tests/e2e/diagnostic.spec.js")
+diagnostic_text = diagnostic_path.read_text(encoding="utf-8")
+diagnostic_count = diagnostic_text.count('"3.21"')
+if diagnostic_count != 2:
+    raise SystemExit(
+        f"diagnostic version expectations: expected 2 matches, found {diagnostic_count}"
+    )
+diagnostic_path.write_text(
+    diagnostic_text.replace('"3.21"', '"3.22"'),
+    encoding="utf-8",
+)
+
 backlog = Path("backlog/004-wake-long-running-response.md")
 backlog_text = backlog.read_text(encoding="utf-8")
 marker = "Status: Done\n"
