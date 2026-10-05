@@ -71,6 +71,8 @@ javascript:
 
 Do not edit it manually.
 
+`runner.min.js` is a bookmarklet URL, not merely a minified JavaScript file. The JavaScript behavior must remain exactly the same as `runner.js`: minify only, with no hand edits, no logic rewrites and no arbitrary URL encoding. After minification, escape literal percent characters (`%` -> `%25`) only for bookmarklet transport, because browsers may URL-decode sequences such as `%36` and corrupt JavaScript operators such as `value%3600`. A single URL-decode of the text after `javascript:` must reproduce the minified JavaScript payload byte-for-byte.
+
 Whenever `runner.js` changes:
 
 1. regenerate the compact payload from the readable source,
