@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Make temporary helper context-specific
+      - name: Make temporary helper state insertion robust
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -43,47 +43,22 @@ jobs:
           end_marker = '    "run-started work style",\n)\n\n'
           block_end = text.index(end_marker, label_pos) + len(end_marker)
 
-          replacement = """runner = replace_once(
-              runner,
-              '''                runStarted,
-                              taskMode: selectedTaskMode,
-                              currentCycle:
-          ''',
-              '''                runStarted,
-                              taskMode: selectedTaskMode,
-                              workStyle: selectedWorkStyle,
-                              currentCycle:
-          ''',
-              "diagnostic work-style state",
-          )
+          replacement = """task_mode_line = "taskMode: selectedTaskMode,"
+          task_mode_count = 0
+          task_mode_lines = []
+          for line in runner.splitlines(keepends=True):
+              task_mode_lines.append(line)
+              if line.strip() == task_mode_line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  task_mode_lines.append(indent + "workStyle: selectedWorkStyle,\\n")
+                  task_mode_count += 1
 
-          runner = replace_once(
-              runner,
-              '''                runStarted,
-                              taskMode: selectedTaskMode,
-                              queuedIntermediateMessages:
-          ''',
-              '''                runStarted,
-                              taskMode: selectedTaskMode,
-                              workStyle: selectedWorkStyle,
-                              queuedIntermediateMessages:
-          ''',
-              "public work-style state",
-          )
+          if task_mode_count != 3:
+              raise RuntimeError(
+                  f"work-style state insertion: expected 3 taskMode fields, found {task_mode_count}"
+              )
 
-          runner = replace_once(
-              runner,
-              '''        record("run-started", {
-                      taskMode: selectedTaskMode,
-                      hasTaskText:
-          ''',
-              '''        record("run-started", {
-                      taskMode: selectedTaskMode,
-                      workStyle: selectedWorkStyle,
-                      hasTaskText:
-          ''',
-              "run-started work style",
-          )
+          runner = "".join(task_mode_lines)
 
           """
 
