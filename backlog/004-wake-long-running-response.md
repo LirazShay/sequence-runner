@@ -2,6 +2,10 @@
 
 Status: Done
 
+## Post-completion regression fix
+
+`v3.22 live-UI regression fix`: the wake path must not require the Send button to be available before inserting `מה קורה?`. In the live ChatGPT UI, Send may remain unavailable while generation is active until composer text is inserted. At the 10-minute threshold, an empty composer therefore enters the existing immediate-send path immediately; that path inserts the text first and then waits briefly for Send. Only an occupied user composer may defer the wake. A regression test simulates Send being unavailable until composer input occurs.
+
 ## Goal
 
 When the same Assistant response remains actively generating for more than 10 minutes, automatically send a short wake-up message such as:

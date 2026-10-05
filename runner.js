@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.21";
+    const VERSION = "3.22";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -4102,17 +4102,10 @@
             });
         }
 
-        let deferredReason = null;
-
-        if (getComposerText()) {
-            deferredReason = "composer-occupied";
-        } else {
-            const sendButton = getSendButton();
-
-            if (!sendButton || sendButton.disabled) {
-                deferredReason = "send-unavailable";
-            }
-        }
+        const deferredReason =
+            getComposerText()
+                ? "composer-occupied"
+                : null;
 
         if (deferredReason) {
             if (
@@ -4132,9 +4125,7 @@
 
             setState(
                 "GENERATING",
-                deferredReason === "composer-occupied"
-                    ? "⏰ עברו 10 דקות; ממתין שתיבת ההודעה תתפנה לפני שליחת ‘מה קורה?’."
-                    : "⏰ עברו 10 דקות; ממתין שכפתור השליחה יהיה זמין לפני שליחת ‘מה קורה?’." ,
+                "⏰ עברו 10 דקות; יש טקסט בתיבת ההודעה ולכן ממתין רק כדי לא לדרוס אותו לפני שליחת ‘מה קורה?’.",
                 "#b45309"
             );
 
