@@ -1,71 +1,109 @@
 # 001 — Version E2E Regression Suite
 
-Status: Open
+Status: Done
 
 ## Goal
 
 Create a permanent end-to-end regression test suite that is versioned together with `sequence-runner` and can be run against every released runner version before that version is considered healthy.
 
-The suite should provide one dedicated script/command that launches the required browser test flow, exercises the runner as a user would, and reports whether the version is operational.
+## Implemented
 
-## Why
+The repository now contains a deterministic browser-level regression laboratory built around:
 
-The runner depends on the live ChatGPT web UI, SPA navigation, DOM selectors, composer behavior, and timing-sensitive state transitions. A change can therefore look correct statically while failing in a real browser flow.
+- the real canonical `runner.js`;
+- a local Mock ChatGPT page that reproduces the DOM contracts and key runtime behaviors the runner depends on;
+- Playwright browser tests running against installed Chrome;
+- a permanent bookmarklet-generation regression check;
+- a permanent GitHub Actions regression workflow;
+- screenshots and Playwright traces on browser-test failures.
 
-A repeatable E2E suite should make release verification explicit and reproducible instead of depending only on ad-hoc manual checks.
+The Mock ChatGPT fixture uses the same core locators as the production integration, including turns, user messages, Assistant bodies, the contenteditable composer, Send, Stop, Regenerate response, Project breadcrumb, and New Chat actions.
 
-## Required outcome
+It can deterministically simulate normal responses, streaming, long-running generation, `Stopped thinking`, queued responses, new-chat navigation delays, Project handoff, stale duplicate composers, Assistant wrapper fallbacks, turn replacement/virtualization, and late DOM mutations after final UI appears.
 
-A future implementation of this task should provide:
+## Commands
 
-- A stable E2E test suite stored in the repository and shipped/versioned with the runner source.
-- A dedicated script or command for running the full version regression check.
-- Browser-level execution that tests the actual runner behavior rather than only isolated helper functions.
-- A clear overall pass/fail result suitable for validating a release candidate.
-- Useful diagnostics when a scenario fails, so the failing stage can be identified quickly.
-- A documented way to run the suite locally for any new runner version.
-- A release rule describing when the suite is expected to be run.
+Run the complete regression gate:
 
-## Version relationship
+```bash
+npm test
+```
 
-The tests must be tied to the repository version being validated. When runner behavior changes, the corresponding regression expectations should be updated in the same version/change set when necessary.
+Run only browser E2E tests:
 
-The test command should make it obvious which runner version was exercised and whether that exact version passed.
+```bash
+npm run test:e2e
+```
 
-## Test scope
+Verify only the committed bookmarklet artifact:
 
-The exact scenario list is intentionally not fixed yet. It should be designed when this task is implemented, based on the then-current runner behavior and known failure modes.
+```bash
+npm run check:bookmarklet
+```
 
-At minimum, the design should cover the critical user-visible flows rather than only happy-path JavaScript execution. The existing reliability rules in `AGENTS.md` and documented behavior in `README.md` should be used as the source for deciding what belongs in the regression suite.
+Open the Mock ChatGPT laboratory manually:
 
-## Constraints
+```bash
+npm run mock
+```
 
-- Keep the solution simple and maintainable.
-- Prefer deterministic assertions over arbitrary sleeps.
-- Do not weaken production behavior merely to make tests easier.
-- Do not make the suite depend on manual DevTools intervention once a run has started.
-- Preserve useful failure evidence for DOM/navigation/state-machine regressions.
-- The exact automation technology and script name are implementation decisions and are not mandated by this backlog item.
+Then open the URL printed by the server.
 
-## Acceptance criteria
+## Initial regression coverage
 
-This task is complete when:
+The initial suite contains 22 browser tests covering the main product contracts and important historical failures, including:
 
-1. The repository contains an executable E2E regression suite for the runner.
-2. A single documented script/command runs the complete version check.
-3. The test output identifies the runner version under test.
-4. The command exits or reports clearly as pass/fail.
-5. Failures provide enough information to locate the broken flow or stage.
-6. The suite is documented as part of the normal release/version validation process.
-7. The suite and its expectations are committed together with the runner versions they validate.
+- normal multi-step continuation;
+- completion-marker semantics;
+- new-task prompt construction;
+- the committed bookmarklet booting correctly;
+- valid regular and Project handoff;
+- malformed handoff safety;
+- queued and scheduled intermediate messages;
+- immediate intermediate send while a response is active without clicking Stop;
+- intermediate-message CRUD/order behavior;
+- occupied-composer recovery;
+- stale duplicate composer handling;
+- restart after completion;
+- step limits;
+- Assistant wrapper fallback;
+- turn DOM replacement/virtualization;
+- final UI appearing before the final text mutation;
+- `Stopped thinking` with and without a due queued message;
+- streamed-response stability.
 
-## Open design work
+The bootstrap validation run completed with all 22 tests passing in 35.7 seconds on GitHub Actions.
 
-Before implementation, define:
+## Permanent regression rule
 
-- the exact browser automation approach;
-- the initial mandatory E2E scenarios;
-- how authentication/session setup is handled safely;
-- whether tests run only locally or also in CI;
-- what artifacts are captured on failure;
-- how a historical runner version can be selected and tested, if historical-version testing is required.
+When a real bug is found and it can be represented by the deterministic browser fixture:
+
+1. reproduce the bug with a failing Mock ChatGPT scenario/test;
+2. confirm the test is red for the broken behavior;
+3. fix the production runner;
+4. confirm the new test is green;
+5. keep that scenario permanently as regression coverage.
+
+Production behavior must not be weakened merely to make tests easier.
+
+## CI
+
+`.github/workflows/regression.yml` runs the regression gate on pull requests and pushes to `main` and can also be started manually.
+
+The CI uses the installed Chrome browser to avoid unnecessary browser downloads. On failure it preserves Playwright trace and screenshot evidence.
+
+## Boundary of this suite
+
+The deterministic Mock ChatGPT suite protects runner/state-machine behavior against known DOM contracts and failure modes. It cannot by itself detect an unannounced change to ChatGPT's live DOM selectors.
+
+A future live-DOM smoke/recording tool may complement this suite for selector drift, but it is not required for this backlog item.
+
+## Acceptance criteria result
+
+1. Executable browser E2E regression suite — done.
+2. One complete validation command (`npm test`) — done.
+3. Exact committed runner/bookmarklet exercised — done.
+4. Clear pass/fail exit status — done.
+5. Failure diagnostics — done via trace/screenshots plus Mock event timeline.
+6. Release/change validation documented — done.
+7. Tests versioned with runner behavior — done.
