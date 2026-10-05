@@ -85,7 +85,7 @@ test("replacing a turn DOM node with the same turn key does not lose the active 
   await harness.load();
   await harness.setScenario({
     responses: [
-      { type: "normal", text: "סיימתי", replaceTurnAfterMs: 80 }
+      { type: "normal", text: "סיימתי", replaceTurnAfterMs: 20 }
     ]
   });
 
@@ -104,7 +104,7 @@ test("final UI appearing before the last DOM mutation does not evaluate an incom
         type: "normal",
         text: "Almost finished",
         tailText: "\nסיימתי",
-        tailDelayMs: 180
+        tailDelayMs: 30
       }
     ]
   });
