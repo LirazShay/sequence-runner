@@ -23,7 +23,7 @@ Each backlog item lives in its own Markdown document so the task can be discusse
 
 | ID | Task | Summary | Priority | Status |
 | --- | --- | --- | --- | --- |
-| 001 | [Version E2E Regression Suite](001-version-e2e-regression-suite.md) | Add a repeatable browser-level regression command that validates the exact runner version and gives useful failure diagnostics. | P0 | Open |
+| 001 | [Version E2E Regression Suite](001-version-e2e-regression-suite.md) | Deterministic Mock ChatGPT + Playwright regression suite now validates the real runner, bookmarklet artifact, handoff, recovery and known failure modes in CI. | P0 | Done |
 | 004 | [Wake Long-Running Response](004-wake-long-running-response.md) | If the same Assistant response is still generating after 10 minutes, send one safe `מה קורה?` nudge without clicking Stop or causing duplicate continuation. | P1 | Open |
 | 005 | [Built-in Diagnostic Report](005-built-in-diagnostic-report.md) | Add an in-runner “Report Problem” action that downloads a versioned state + DOM snapshot for AI/developer debugging without requiring DevTools. | P1 | Open |
 | 002 | [Rename Previous Chat on Handoff](002-rename-previous-chat-on-handoff.md) | Investigate and implement safe renaming of the outgoing chat during automatic handoff, with a deterministic naming and failure policy. | P2 | Open |
