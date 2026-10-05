@@ -396,6 +396,15 @@ When debugging a failure:
 4. determine the root cause,
 5. fix the correct layer instead of adding arbitrary delays or broad retries.
 
+The built-in diagnostic contract is versioned and non-mutating:
+
+```js
+__sequenceRunner.createDiagnosticSnapshot()
+__sequenceRunner.downloadDiagnosticSnapshot()
+```
+
+The panel exposes the same snapshot through **דווח תקלה / הורד צילום מצב**. Diagnostic capture must never send, click Stop, clear or overwrite the composer, recover automatically, or otherwise change Runner state. It may intentionally include visible conversation text and DOM, but must not intentionally collect cookies, auth tokens/headers, browser storage, saved credentials or arbitrary network bodies. When production DOM selectors change, update the diagnostic selector inventory in the same change. Preserve partial capture errors inside the report instead of crashing on unexpected DOM.
+
 ## Development principles
 
 Prefer KISS.

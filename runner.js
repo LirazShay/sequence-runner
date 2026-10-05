@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.20";
+    const VERSION = "3.21";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -36,6 +36,24 @@
         stopButton: 'button[aria-label="Stop"],button[aria-label="עצור"]',
         regenerateButton: 'button[aria-label="Regenerate response"]'
     });
+
+    const DIAGNOSTIC_SCHEMA_VERSION = 1;
+    const DIAGNOSTIC_SELECTORS = Object.freeze([
+        '[data-turn-key]',
+        '[data-user-message-bubble="true"]',
+        '[data-markdown-text-style="assistant-message"]',
+        '[data-content-search-unit-key$=":assistant"]',
+        '[data-chatgpt-search-unit-key$=":assistant"]',
+        '[data-chatgpt-selection-message-id]',
+        'h4[data-conversation-role="assistant"]',
+        '[contenteditable="true"][data-composer-markdown]',
+        '#prompt-textarea',
+        'button[aria-label="Send"]',
+        'button[aria-label="Stop"]',
+        'button[aria-label="Regenerate response"]',
+        'button[data-testid="send-button"]',
+        'button[data-testid="stop-button"]'
+    ]);
 
     try {
         window.__chatgptAutoContinueV3?.stop?.("replaced");
@@ -149,12 +167,29 @@
         '</div>',
         '<div style="margin-top:7px;font-size:11px;color:#94a3b8">הגבול נבדק רק אחרי שתשובת ChatGPT הנוכחית הושלמה; הוא לא חותך תשובה באמצע.</div>',
         '</div>',
+        '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
+        '<div style="font-weight:700;margin-bottom:7px">אבחון תקלה</div>',
+        '<button type="button" data-action="download-diagnostic" style="width:100%;border:1px solid #0ea5e9;background:#0c4a6e;color:#fff;border-radius:6px;padding:7px;cursor:pointer;font-weight:700">דווח תקלה / הורד צילום מצב</button>',
+        '<div data-role="diagnostic-warning" style="margin-top:6px;font-size:10px;color:#fbbf24">הדוח עשוי לכלול את תוכן הצ׳אט וה־DOM הגלוי בדף. הוא לא אוסף בכוונה cookies, tokens או browser storage.</div>',
+        '</div>',
         '</div>',
         '</div>',
         '<div data-role="resize-handle" title="גרור לשינוי גודל" style="position:absolute;left:0;bottom:0;width:22px;height:22px;cursor:nesw-resize;z-index:5;display:flex;align-items:flex-end;justify-content:flex-start;padding:2px;box-sizing:border-box;color:#94a3b8;font-size:15px;line-height:1;user-select:none;touch-action:none">↙</div>'
     ].join("");
 
     document.body.appendChild(panel);
+
+    const diagnosticButton = panel.querySelector('[data-action="download-diagnostic"]');
+    diagnosticButton?.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        try {
+            downloadDiagnosticSnapshot();
+        } catch (err) {
+            console.error("Sequence Runner diagnostic download failed", err);
+        }
+    });
 
     const statusDiv = panel.querySelector('[data-role="status"]');
     const panelBody = panel.querySelector('[data-role="body"]');
@@ -1772,6 +1807,615 @@
 
             keepPanelInViewport();
         } catch (_) {}
+    }
+
+    function diagnosticSafeCapture(errors, label, capture, fallbackValue) {
+        try {
+            return capture();
+        } catch (err) {
+            errors.push({
+                label,
+                name: err?.name || "Error",
+                message: err?.message || String(err || "")
+            });
+            return fallbackValue;
+        }
+    }
+
+    function diagnosticText(value) {
+        return String(value || "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function diagnosticPreview(value, maxLength) {
+        const textValue = diagnosticText(value);
+        const limit = Math.max(0, maxLength || 600);
+        return textValue.length <= limit
+            ? textValue
+            : textValue.slice(0, limit) + "…";
+    }
+
+    function diagnosticRect(element) {
+        if (!element) {
+            return null;
+        }
+
+        const rect = element.getBoundingClientRect();
+        return {
+            x: rect.x,
+            y: rect.y,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height
+        };
+    }
+
+    function diagnosticAttributes(element) {
+        if (!element?.attributes) {
+            return {};
+        }
+
+        const attributes = {};
+        [...element.attributes].forEach(function (attribute) {
+            attributes[attribute.name] = attribute.value;
+        });
+        return attributes;
+    }
+
+    function diagnosticElementSummary(element) {
+        if (!element) {
+            return null;
+        }
+
+        return {
+            tag: element.tagName?.toLowerCase() || null,
+            id: element.id || null,
+            className: element.getAttribute?.("class") || null,
+            ariaLabel: element.getAttribute?.("aria-label") || null,
+            testId: element.getAttribute?.("data-testid") || null,
+            title: element.getAttribute?.("title") || null,
+            disabled: "disabled" in element ? !!element.disabled : null,
+            visible: isElementVisible(element),
+            rect: diagnosticRect(element),
+            text: diagnosticPreview(
+                element.innerText || element.textContent || "",
+                500
+            ),
+            attributes: diagnosticAttributes(element)
+        };
+    }
+
+    function diagnosticQuery(selector, errors, root) {
+        return diagnosticSafeCapture(
+            errors,
+            "selector:" + selector,
+            function () {
+                const queryRoot = root || document;
+                const nodes = [...queryRoot.querySelectorAll(selector)];
+                return {
+                    selector,
+                    count: nodes.length,
+                    visibleCount: nodes.filter(isElementVisible).length,
+                    nodes: nodes.slice(0, 30).map(diagnosticElementSummary)
+                };
+            },
+            {
+                selector,
+                count: null,
+                visibleCount: null,
+                nodes: [],
+                error: true
+            }
+        );
+    }
+
+    function diagnosticControlInventory(root, errors) {
+        return diagnosticSafeCapture(
+            errors,
+            "control-inventory",
+            function () {
+                return [...(root || document).querySelectorAll(
+                    'button,[role="button"],input,textarea,[contenteditable="true"]'
+                )]
+                    .filter(function (element) {
+                        return isElementVisible(element);
+                    })
+                    .slice(0, 250)
+                    .map(diagnosticElementSummary);
+            },
+            []
+        );
+    }
+
+    function diagnosticAssistantSelectorMatches(turn, errors) {
+        const selectors = [
+            '[data-markdown-text-style="assistant-message"]',
+            '[data-content-search-unit-key$=":assistant"]',
+            '[data-chatgpt-search-unit-key$=":assistant"]',
+            '[data-chatgpt-selection-message-id]',
+            'h4[data-conversation-role="assistant"]'
+        ];
+
+        return selectors.map(function (selector) {
+            return diagnosticQuery(selector, errors, turn);
+        });
+    }
+
+    function diagnosticTurnSummary(turn, index, errors) {
+        const userNode = diagnosticSafeCapture(
+            errors,
+            "turn-user-message:" + index,
+            function () {
+                return turn.querySelector(SELECTORS.userMessage);
+            },
+            null
+        );
+        const textValue = diagnosticSafeCapture(
+            errors,
+            "turn-text:" + index,
+            function () {
+                return diagnosticText(turn.innerText || turn.textContent || "");
+            },
+            ""
+        );
+        const assistantMatches = diagnosticAssistantSelectorMatches(turn, errors);
+
+        return {
+            index,
+            turnKey: getTurnKey(turn),
+            visible: isElementVisible(turn),
+            rect: diagnosticRect(turn),
+            textLength: textValue.length,
+            textPreview: diagnosticPreview(textValue, 1000),
+            userMessage: userNode
+                ? diagnosticPreview(userNode.innerText || userNode.textContent || "", 1000)
+                : null,
+            assistantMatches,
+            roleHeadings: diagnosticQuery(
+                'h4[data-conversation-role]',
+                errors,
+                turn
+            ),
+            selectionMessages: diagnosticQuery(
+                '[data-chatgpt-selection-message-id]',
+                errors,
+                turn
+            ),
+            buttons: diagnosticQuery("button", errors, turn),
+            finalUiPresent: diagnosticSafeCapture(
+                errors,
+                "turn-final-ui:" + index,
+                function () {
+                    return !!turn.querySelector(SELECTORS.regenerateButton);
+                },
+                false
+            )
+        };
+    }
+
+    function diagnosticDeepTurn(turn, errors) {
+        if (!turn) {
+            return null;
+        }
+
+        const keywords = [
+            "assistant",
+            "message",
+            "conversation",
+            "response",
+            "turn",
+            "markdown",
+            "selection",
+            "author"
+        ];
+
+        const descendants = diagnosticSafeCapture(
+            errors,
+            "current-turn-descendants",
+            function () {
+                const matched = [...turn.querySelectorAll("*")].filter(function (element) {
+                    const descriptor = [
+                        element.tagName,
+                        element.id,
+                        element.getAttribute?.("class"),
+                        element.getAttribute?.("role"),
+                        element.getAttribute?.("aria-label"),
+                        element.getAttribute?.("data-testid"),
+                        element.getAttribute?.("data-content-search-unit-key"),
+                        element.getAttribute?.("data-chatgpt-search-unit-key"),
+                        element.getAttribute?.("data-chatgpt-selection-message-id"),
+                        element.getAttribute?.("data-conversation-role"),
+                        element.getAttribute?.("data-markdown-text-style")
+                    ]
+                        .filter(Boolean)
+                        .join(" ")
+                        .toLowerCase();
+
+                    return keywords.some(function (keyword) {
+                        return descriptor.includes(keyword);
+                    });
+                });
+
+                return {
+                    matchedCount: matched.length,
+                    nodes: matched.slice(0, 250).map(diagnosticElementSummary)
+                };
+            },
+            { matchedCount: null, nodes: [] }
+        );
+
+        return {
+            turnKey: getTurnKey(turn),
+            visible: isElementVisible(turn),
+            rect: diagnosticRect(turn),
+            attributes: diagnosticAttributes(turn),
+            visibleText: diagnosticSafeCapture(
+                errors,
+                "current-turn-visible-text",
+                function () {
+                    return turn.innerText || turn.textContent || "";
+                },
+                ""
+            ),
+            outerHTML: diagnosticSafeCapture(
+                errors,
+                "current-turn-outer-html",
+                function () {
+                    return turn.outerHTML;
+                },
+                null
+            ),
+            assistantMatches: diagnosticAssistantSelectorMatches(turn, errors),
+            controls: diagnosticControlInventory(turn, errors),
+            descendants
+        };
+    }
+
+    function diagnosticCycleSnapshot(cycle) {
+        if (!cycle) {
+            return null;
+        }
+
+        return {
+            id: cycle.id ?? null,
+            label: cycle.label ?? null,
+            prompt: cycle.prompt ?? null,
+            sentAt: cycle.sentAt ?? null,
+            elapsedMs:
+                cycle.sentAt == null
+                    ? null
+                    : Math.max(0, Date.now() - cycle.sentAt),
+            turnKey: cycle.turnKey ?? null,
+            sawStop: !!cycle.sawStop,
+            lastTextLength:
+                cycle.lastText == null
+                    ? 0
+                    : String(cycle.lastText).length,
+            lastTextPreview: diagnosticPreview(cycle.lastText || "", 800),
+            lastTextChangedAt: cycle.lastTextChangedAt ?? null,
+            longWaitNoticeBucket: cycle.longWaitNoticeBucket ?? null,
+            activeGenerationStartedAt: cycle.activeGenerationStartedAt ?? null,
+            wakeState: cycle.wakeState ?? null,
+            wakeThresholdReachedAt: cycle.wakeThresholdReachedAt ?? null,
+            wakeDeferredReason: cycle.wakeDeferredReason ?? null,
+            wakeSentAt: cycle.wakeSentAt ?? null,
+            processed: !!cycle.processed,
+            beforeTurnKeys: cycle.beforeKeys
+                ? [...cycle.beforeKeys]
+                : []
+        };
+    }
+
+    function diagnosticQueuedMessages() {
+        return injectionQueue.map(function (item) {
+            return {
+                id: item.id,
+                text: item.text,
+                targetCompletedResponses: item.targetCompletedResponses,
+                createdAt: item.createdAt,
+                order: item.order
+            };
+        });
+    }
+
+    function diagnosticPendingAutoSend() {
+        return pendingAutoSend
+            ? {
+                  prompt: pendingAutoSend.prompt,
+                  label: pendingAutoSend.label,
+                  reason: pendingAutoSend.reason,
+                  deferredAt: pendingAutoSend.deferredAt
+              }
+            : null;
+    }
+
+    function diagnosticHypotheses(snapshot) {
+        const observations = [];
+        const currentTurn = snapshot.currentTurn;
+        const currentCycleSnapshot = snapshot.runner.currentCycle;
+
+        if (currentCycleSnapshot?.turnKey && !currentTurn) {
+            observations.push({
+                code: "CURRENT_TURN_NOT_RESOLVED",
+                message: "The tracked turnKey could not be resolved in the current DOM."
+            });
+        }
+
+        if (currentTurn) {
+            const knownAssistantMatches = currentTurn.assistantMatches.reduce(
+                function (total, entry) {
+                    return total + (Number.isFinite(entry.count) ? entry.count : 0);
+                },
+                0
+            );
+            const visibleText = diagnosticText(currentTurn.visibleText);
+
+            if (visibleText && knownAssistantMatches === 0) {
+                observations.push({
+                    code: "VISIBLE_TURN_TEXT_BUT_ASSISTANT_SELECTOR_MISS",
+                    message: "The tracked turn has visible text but none of the known Assistant selectors matched."
+                });
+            }
+
+            const duplicateCount = snapshot.turns.filter(function (turn) {
+                return turn.turnKey === currentTurn.turnKey;
+            }).length;
+
+            if (duplicateCount > 1) {
+                observations.push({
+                    code: "DUPLICATE_TRACKED_TURN_KEY",
+                    message: "Multiple DOM turn nodes share the tracked turnKey.",
+                    count: duplicateCount
+                });
+            }
+
+            if (!currentTurn.visible) {
+                observations.push({
+                    code: "TRACKED_TURN_HIDDEN",
+                    message: "The tracked turn is currently hidden or has no visible box."
+                });
+            }
+
+            const regenerate = currentTurn.assistantMatches;
+            void regenerate;
+            const finalUi = snapshot.selectors['button[aria-label="Regenerate response"]'];
+            if (!finalUi || finalUi.visibleCount === 0) {
+                observations.push({
+                    code: "REGENERATE_SELECTOR_NOT_PRESENT",
+                    message: "No visible Regenerate response control was captured."
+                });
+            }
+        }
+
+        const stopSelector = snapshot.selectors['button[aria-label="Stop"]'];
+        const stopVisible = !!stopSelector && stopSelector.visibleCount > 0;
+        if (
+            !stopVisible &&
+            [
+                "GENERATING",
+                "WAITING_FOR_RESPONSE",
+                "WAITING_FOR_STABLE_RESPONSE"
+            ].includes(snapshot.runner.stateName)
+        ) {
+            observations.push({
+                code: "NO_STOP_BUT_RUNNER_STILL_WAITING",
+                message: "No visible Stop control exists while the runner is still in a response-waiting state."
+            });
+        }
+
+        return observations;
+    }
+
+    function createDiagnosticSnapshot() {
+        const captureErrors = [];
+        const publicApi = window.__sequenceRunner;
+        const turns = diagnosticSafeCapture(
+            captureErrors,
+            "turn-inventory",
+            function () {
+                return getTurns().map(function (turn, index) {
+                    return diagnosticTurnSummary(turn, index, captureErrors);
+                });
+            },
+            []
+        );
+        const trackedTurn = diagnosticSafeCapture(
+            captureErrors,
+            "tracked-turn-resolution",
+            function () {
+                return currentCycle?.turnKey
+                    ? getTurnByKey(currentCycle.turnKey)
+                    : null;
+            },
+            null
+        );
+        const selectorResults = {};
+
+        DIAGNOSTIC_SELECTORS.forEach(function (selector) {
+            selectorResults[selector] = diagnosticQuery(
+                selector,
+                captureErrors,
+                document
+            );
+        });
+
+        const composerCandidates = diagnosticSafeCapture(
+            captureErrors,
+            "composer-candidates",
+            function () {
+                const nodes = [
+                    ...document.querySelectorAll(SELECTORS.composer),
+                    ...document.querySelectorAll("#prompt-textarea")
+                ];
+                return [...new Set(nodes)].map(function (element) {
+                    return diagnosticElementSummary(element);
+                });
+            },
+            []
+        );
+
+        const snapshot = {
+            diagnosticSchemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+            generatedAt: new Date().toISOString(),
+            privacy: {
+                includesVisibleConversationAndDom: true,
+                intentionallyExcluded: [
+                    "cookies",
+                    "authentication tokens",
+                    "authorization headers",
+                    "localStorage",
+                    "sessionStorage",
+                    "IndexedDB contents",
+                    "saved passwords",
+                    "network request/response bodies",
+                    "browser history outside the current page",
+                    "unrelated extension data"
+                ]
+            },
+            runner: {
+                version: VERSION,
+                stateName: state,
+                stopped,
+                sendLocked,
+                immediateSendLocked,
+                pendingAutoSendLocked,
+                runStarted,
+                taskMode: selectedTaskMode,
+                currentCycle: diagnosticCycleSnapshot(currentCycle),
+                completedResponseCount,
+                continuationCount,
+                sentPromptCount: cycleSeq,
+                injectionSentCount,
+                queuedIntermediateMessageCount: injectionQueue.length,
+                queuedIntermediateMessages: diagnosticQueuedMessages(),
+                pendingAutoSend: diagnosticPendingAutoSend(),
+                handoffInProgress,
+                handoffCount,
+                stepLimit: {
+                    stopAfterCompletedResponses,
+                    mode: stopLimitMode
+                },
+                lastStatusMessage,
+                lastStatusColor,
+                publicState: diagnosticSafeCapture(
+                    captureErrors,
+                    "public-get-state",
+                    function () {
+                        return publicApi?.getState?.() || null;
+                    },
+                    null
+                ),
+                metrics: diagnosticSafeCapture(
+                    captureErrors,
+                    "public-get-metrics",
+                    function () {
+                        return publicApi?.getMetrics?.() || null;
+                    },
+                    null
+                ),
+                log: diagnosticSafeCapture(
+                    captureErrors,
+                    "public-get-log",
+                    function () {
+                        return publicApi?.getLog?.() || [...log];
+                    },
+                    [...log]
+                )
+            },
+            page: {
+                url: location.href,
+                pathname: location.pathname,
+                title: document.title,
+                readyState: document.readyState,
+                visibilityState: document.visibilityState,
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                viewport: {
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    devicePixelRatio: window.devicePixelRatio
+                },
+                fullPageHtml: diagnosticSafeCapture(
+                    captureErrors,
+                    "full-page-html",
+                    function () {
+                        return document.documentElement.outerHTML;
+                    },
+                    null
+                )
+            },
+            selectors: selectorResults,
+            currentTurn: diagnosticDeepTurn(trackedTurn, captureErrors),
+            turns,
+            controls: diagnosticControlInventory(document, captureErrors),
+            composer: {
+                candidates: composerCandidates,
+                selected: diagnosticSafeCapture(
+                    captureErrors,
+                    "selected-composer",
+                    function () {
+                        return diagnosticElementSummary(getComposer());
+                    },
+                    null
+                ),
+                sendButton: diagnosticSafeCapture(
+                    captureErrors,
+                    "send-button",
+                    function () {
+                        return diagnosticElementSummary(getSendButton());
+                    },
+                    null
+                ),
+                stopButton: diagnosticSafeCapture(
+                    captureErrors,
+                    "stop-button",
+                    function () {
+                        return diagnosticElementSummary(getStopButton());
+                    },
+                    null
+                )
+            },
+            diagnosis: {
+                observations: []
+            },
+            captureErrors
+        };
+
+        snapshot.diagnosis.observations = diagnosticSafeCapture(
+            captureErrors,
+            "diagnostic-hypotheses",
+            function () {
+                return diagnosticHypotheses(snapshot);
+            },
+            []
+        );
+
+        return snapshot;
+    }
+
+    function downloadDiagnosticSnapshot() {
+        const snapshot = createDiagnosticSnapshot();
+        const json = JSON.stringify(snapshot, null, 2);
+        const blob = new Blob([json], {
+            type: "application/json;charset=utf-8"
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const timestamp = snapshot.generatedAt.replace(/[:.]/g, "-");
+
+        link.href = url;
+        link.download = "sequence-runner-diagnostic-" + timestamp + ".json";
+        link.click();
+
+        setTimeout(function () {
+            URL.revokeObjectURL(url);
+        }, 0);
+
+        return snapshot;
     }
 
     function setupPanelInteractions() {
@@ -4135,6 +4779,8 @@
     window.__sequenceRunner = Object.freeze({
         version: VERSION,
         stop,
+        createDiagnosticSnapshot,
+        downloadDiagnosticSnapshot,
         getState: function () {
             return {
                 state,
