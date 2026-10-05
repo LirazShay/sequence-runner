@@ -244,6 +244,8 @@ Responses may legitimately take many minutes. The runner should continue waiting
 
 After a long wait, status/diagnostic notices are allowed, but they must not terminate the run.
 
+The one explicit automatic long-wait exception is a one-shot wake nudge for the same continuously active tracked Assistant response: after 10 minutes of active generation, send `מה קורה?` once through the existing immediate composer/send path. Never click Stop, never resend the interrupted runner prompt, never overwrite user composer text, and never send the nudge more than once for the same tracked response. If the composer or Send control is not safe, defer the nudge while that same response remains active. Eligibility resets for the next tracked Assistant response.
+
 Do not implement automatic resend loops. Manual stop remains the safe escape hatch if a run is genuinely stuck.
 
 ### Composer safety

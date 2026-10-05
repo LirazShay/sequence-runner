@@ -91,6 +91,7 @@ START
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.
+- If the exact same tracked Assistant response remains actively generating for 10 minutes, the runner sends one `מה קורה?` wake nudge through the normal composer/send path, without clicking Stop or resending the original runner prompt. The nudge is one-shot per response and defers rather than overwriting occupied composer text.
 - The user can always stop manually by clicking the status badge.
 - Existing composer text is never overwritten automatically.
 - Text insertion is verified before Send is clicked.
