@@ -1,0 +1,16 @@
+{
+  "name": "sequence-runner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:bookmarklet": "node scripts/build-bookmarklet.mjs",
+    "check:bookmarklet": "node scripts/build-bookmarklet.mjs --check",
+    "test:e2e": "playwright test",
+    "test": "npm run check:bookmarklet && npm run test:e2e",
+    "mock": "node scripts/serve-mock.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "terser": "5.44.0"
+  }
+}

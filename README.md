@@ -409,3 +409,28 @@ After every source change, rebuild and verify both:
 startsWith("javascript:")
 lineCount === 1
 ```
+
+
+## Regression testing
+
+The repository includes a deterministic Mock ChatGPT + Playwright regression laboratory that executes the real canonical `runner.js` in Chrome.
+
+Run the complete release/change gate with:
+
+```bash
+npm test
+```
+
+Useful narrower commands:
+
+```bash
+npm run test:e2e
+npm run check:bookmarklet
+npm run mock
+```
+
+`npm run mock` opens the local Mock ChatGPT laboratory for interactive reproduction. The permanent CI workflow runs the regression suite for pull requests and `main`, and keeps Playwright trace/screenshot evidence on failures.
+
+For reproducible bugs, prefer the permanent workflow: first create a failing Mock ChatGPT scenario, then fix `runner.js`, then keep the green test as regression coverage. See `tests/README.md` for architecture, scenarios and maintenance rules.
+
+The mock protects behavior against the verified DOM contract; it does not replace occasional verification against the live ChatGPT DOM when selectors change.
