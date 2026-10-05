@@ -57,3 +57,56 @@ test("streamed response is evaluated only after generation ends and text stabili
   const events = await harness.events();
   expect(events.filter((event) => event.type === "assistant-chunk")).toHaveLength(4);
 });
+
+test("deferred continuation is superseded by a manually sent completed turn", async ({ harness }) => {
+  await harness.loadCanonical();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "First segment complete." },
+      { type: "normal", text: "Manual response complete.\nסיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("READY_TO_CONTINUE", 6000);
+  await harness.page.evaluate(() => window.__mockChatGPT.setComposerText("MANUAL_OVERRIDE"));
+  await harness.waitForState("WAITING_FOR_COMPOSER", 6000);
+  await harness.page.locator('button[aria-label="Send"]').click();
+  await harness.waitForState("DONE", 8000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toBe("MANUAL_OVERRIDE");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "continuation-superseded-by-external-turn" &&
+    entry.trigger === "pending-resume"
+  )).toBeTruthy();
+});
+
+test("manual turn during continuation delay is evaluated before stale continuation", async ({ harness }) => {
+  await harness.loadCanonical();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "First segment complete." },
+      { type: "normal", text: "Manual response complete.\nסיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("READY_TO_CONTINUE", 6000);
+  await harness.page.evaluate(() => window.__mockChatGPT.setComposerText("MANUAL_FAST_OVERRIDE"));
+  await harness.page.locator('button[aria-label="Send"]').click();
+  await harness.waitForState("DONE", 8000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toBe("MANUAL_FAST_OVERRIDE");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "continuation-superseded-by-external-turn" &&
+    entry.trigger === "before-send"
+  )).toBeTruthy();
+});
