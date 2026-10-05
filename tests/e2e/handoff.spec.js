@@ -67,7 +67,7 @@ test("project handoff uses the exact project New Chat action and stays in the pr
   expect(mockState.path).toMatch(/^\/g\/g-p-mock\/c\/mock-chat-/);
 });
 
-test("Deep work style persists across automatic handoff", async ({ harness }) => {
+test("Deep work style and Collaborative decision mode persist across automatic handoff", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     responses: [
@@ -76,7 +76,7 @@ test("Deep work style persists across automatic handoff", async ({ harness }) =>
     ]
   });
 
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext("deep"));
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext("deep", "collaborative"));
   await harness.waitForState("DONE");
 
   const sent = await harness.sentMessages();
@@ -86,10 +86,14 @@ test("Deep work style persists across automatic handoff", async ({ harness }) =>
     expect(prompt).toContain("התקדם שלב משמעותי אחד");
     expect(prompt).toContain("קבע נקודות מעבר טבעיות");
     expect(prompt).toContain("מה הצ'אט הנוכחי צריך לסיים ומה הצ'אט הבא אמור לקחת");
+    expect(prompt).toContain("במצב Collaborative");
+    expect(prompt).toContain("חכה להכרעת המשתמש");
   }
 
   expect(sent[1]).toContain("DEEP_NEXT_TASK");
-  expect((await harness.runnerState()).workStyle).toBe("deep");
+  const state = await harness.runnerState();
+  expect(state.workStyle).toBe("deep");
+  expect(state.decisionMode).toBe("collaborative");
 });
 
 test("malformed handoff stops with an explicit error instead of silently continuing", async ({ harness }) => {

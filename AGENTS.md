@@ -36,12 +36,15 @@ Current workflow configuration:
 - A bare final `סיימתי` means the entire sequence is complete.
 - When the current chat is complete but work must continue in a new chat, the assistant is instructed to write `סיימתי` and then the valid handoff block. Because the handoff block is the final content, the runner continues instead of treating that local chat completion as global completion.
 
-Work style is a per-run prompt contract:
+Work style and decision mode are independent per-run prompt contracts:
 
-- `steady` is the default. It asks the assistant to progress naturally to a sensible stopping point and must not reintroduce the old `תתקדם שלב אחד בלבד` wording.
-- `deep` asks for a substantial stage of work, including related sub-steps, checks and fixes, before stopping. It also strengthens rollover planning: define natural chat boundaries, close the current work segment, decide what the next chat should own, persist durable state, and prefer a fresh chat when that improves focus.
-- Keep the continuation command and the concept of `שלב`; work style changes the intended amount of coherent work, not the runner state-machine protocol.
-- Preserve the selected work style across automatic handoff so the fresh chat receives the same work-depth contract.
+- `steady` is the default work style. It progresses naturally, but still groups work by goals/results rather than tiny technical operations. A segment should reach a clear, verifiable outcome before stopping when practical.
+- `deep` uses the same goal/result segmentation rule but pushes harder toward a substantial coherent stage, including related sub-steps, checks and fixes, before stopping.
+- Both styles prefer a small number of meaningful segments over many tiny steps. Keep the continuation command and the concept of `שלב`; work style changes the intended amount of coherent work, not the runner state-machine protocol.
+- `autonomous` is the default decision mode. For significant choices, select the best reasonable option from the goal and available evidence and continue. Ask only when essential information cannot reasonably be inferred or explicit user approval is required.
+- `collaborative` turns significant ambiguous choices into checkpoints: present the options and recommendation and wait for the user. Routine or safely inferable technical decisions should still proceed without interruption.
+- Preserve both the selected work style and decision mode across automatic handoff so the fresh chat receives the same execution contract.
+- Chat-rollover policy is a separate concern. Do not expand or reinterpret rollover rules merely because checkpoint/decision wording changes.
 
 The longer-term product direction is a generic sequence/workflow runner, not a script hard-coded forever to one Hebrew prompt.
 

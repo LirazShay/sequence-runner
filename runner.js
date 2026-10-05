@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.24";
+    const VERSION = "3.25";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -129,9 +129,13 @@
         '<option value="steady">Steady — התקדמות טבעית</option>',
         '<option value="deep">Deep — עבודה עמוקה ומקטעים משמעותיים</option>',
         '</select>',
+        '<select data-input="decision-mode" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
+        '<option value="autonomous">Autonomous — קבל החלטות והמשך</option>',
+        '<option value="collaborative">Collaborative — עצור בהחלטות מהותיות</option>',
+        '</select>',
         '<textarea data-input="task-text" rows="4" placeholder="כתוב כאן את המשימה..." style="display:none;width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
         '<button type="button" data-action="start-run" style="width:100%;border:0;background:#15803d;color:#fff;border-radius:6px;padding:7px;cursor:pointer;font-weight:700">התחל ריצה</button>',
-        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">Steady מתקדם בקצב טבעי. Deep מבצע מקטע משמעותי בכל המשך ומעודד מעבר לצ׳אט חדש בנקודות עבודה טבעיות. במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה.</div>',
+        '<div style="margin-top:6px;font-size:11px;color:#94a3b8">Steady ו־Deep עובדים במקטעים לפי מטרות ותוצאות; Deep דוחף למקטעים גדולים יותר. Autonomous מקבל החלטות סבירות וממשיך, Collaborative עוצר בהחלטות מהותיות. במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה.</div>',
         '</div>',
         '<div data-role="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px"></div>',
         '<button type="button" data-action="restart-run" style="display:none;width:100%;border:0;background:#0f766e;color:#fff;border-radius:6px;padding:8px;cursor:pointer;font-weight:700;margin-bottom:10px">התחל ריצה חדשה</button>',
@@ -227,6 +231,7 @@
     let selectedTaskMode = "existing";
     let selectedTaskText = "";
     let selectedWorkStyle = "steady";
+    let selectedDecisionMode = "autonomous";
     let runnerStartedAt = null;
     let injectionSeq = 0;
     let injectionSentCount = 0;
@@ -310,6 +315,12 @@
             : "steady";
     }
 
+    function normalizeDecisionMode(value) {
+        return value === "collaborative"
+            ? "collaborative"
+            : "autonomous";
+    }
+
     function isDone(text) {
         const lines = normalizeText(text)
             .split(/\n+/)
@@ -336,15 +347,30 @@
 
     function getRunnerControlLines(
         startInstruction,
-        workStyle
+        workStyle,
+        decisionMode
     ) {
         const style =
             normalizeWorkStyle(workStyle);
 
+        const decisions =
+            normalizeDecisionMode(decisionMode);
+
         const workInstruction =
             style === "deep"
-                ? "בכל פעם שאכתוב 'תמשיך לשלב הבא', התקדם שלב משמעותי אחד, ובתוכו בצע ברצף את כל תתי־השלבים, הבדיקות והתיקונים הנחוצים כדי להגיע לנקודת עצירה טבעית. אל תעצור אחרי פעולה טכנית קטנה בלבד."
-                : "בכל פעם שאכתוב 'תמשיך לשלב הבא', המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית.";
+                ? "בכל פעם שאכתוב 'תמשיך לשלב הבא', התקדם שלב משמעותי אחד. בתוך השלב בצע ברצף מקטע עבודה משמעותי, כולל כל תתי־השלבים, הבדיקות והתיקונים הקשורים שנחוצים כדי להשיג יעד ברור ולאמת אותו. אל תעצור אחרי פעולה טכנית קטנה בלבד."
+                : "בכל פעם שאכתוב 'תמשיך לשלב הבא', המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית. אל תכפה מקטע גדול כשאין בכך צורך, אך גם אל תעצור אחרי פעולה טכנית קטנה אם עדיין לא הושג יעד ברור שניתן לאמת.";
+
+        const segmentInstruction =
+            "חלק את העבודה למקטעים לפי מטרות ותוצאות, לא לפי פעולות טכניות קטנות. בתוך כל מקטע השלם את כל העבודה הדרושה להשגת יעד ברור ואמת את התוצאה לפני עצירה. בדרך כלל העדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים.";
+
+        const checkpointInstruction =
+            "סיים מקטע בנקודת checkpoint טבעית: לאחר שהושגה תוצאה משמעותית שניתן לאמת, כאשר השלב הבא הוא סוג עבודה שונה מהותית, או לפני פעולה בעלת סיכון משמעותי. החלטה משמעותית מחייבת עצירה למשתמש רק כאשר מצב ההחלטות הוא Collaborative.";
+
+        const decisionInstruction =
+            decisions === "collaborative"
+                ? "במצב Collaborative, כאשר נדרשת החלטה משמעותית שיש לה כמה חלופות סבירות והיא תשפיע מהותית על ההמשך, עצור בנקודת checkpoint, הצג בקצרה את האפשרויות ואת המלצתך, וחכה להכרעת המשתמש. אל תעצור על החלטות שגרתיות או פרטים טכניים שניתן להסיק בבטחה."
+                : "במצב Autonomous, כאשר נדרשת החלטה משמעותית, קבל בעצמך את ההחלטה הסבירה הטובה ביותר לפי המטרה והמידע הקיים והמשך בעבודה. תעד בקצרה החלטות מהותיות כאשר הדבר מועיל. עצור לשאלה רק אם חסר מידע חיוני שאי אפשר להסיק באופן סביר או אם נדרש אישור מפורש מהמשתמש.";
 
         const handoffInstruction =
             style === "deep"
@@ -353,6 +379,12 @@
 
         return [
             workInstruction,
+            "",
+            segmentInstruction,
+            "",
+            checkpointInstruction,
+            "",
+            decisionInstruction,
             "",
             "אל תכתוב 'סיימתי' בסוף שלב רגיל.",
             "",
@@ -387,10 +419,14 @@
     function buildFirstPrompt(
         mode,
         taskText,
-        workStyle
+        workStyle,
+        decisionMode
     ) {
         const style =
             normalizeWorkStyle(workStyle);
+
+        const decisions =
+            normalizeDecisionMode(decisionMode);
 
         const startInstruction =
             mode === "new"
@@ -400,7 +436,8 @@
         if (mode !== "new") {
             return getRunnerControlLines(
                 startInstruction,
-                style
+                style,
+                decisions
             ).join("\n");
         }
 
@@ -418,7 +455,8 @@
             "",
             ...getRunnerControlLines(
                 startInstruction,
-                style
+                style,
+                decisions
             )
         ].join("\n");
     }
@@ -436,7 +474,8 @@
         return buildFirstPrompt(
             "new",
             prompt,
-            selectedWorkStyle
+            selectedWorkStyle,
+            selectedDecisionMode
         );
     }
 
@@ -2323,6 +2362,7 @@
                 runStarted,
                 taskMode: selectedTaskMode,
                 workStyle: selectedWorkStyle,
+                decisionMode: selectedDecisionMode,
                 currentCycle: diagnosticCycleSnapshot(currentCycle),
                 completedResponseCount,
                 continuationCount,
@@ -2477,6 +2517,10 @@
             '[data-input="work-style"]'
         );
 
+        const decisionModeSelect = panel.querySelector(
+            '[data-input="decision-mode"]'
+        );
+
         taskModeSelect?.addEventListener(
             "change",
             function () {
@@ -2497,7 +2541,8 @@
                 beginRun(
                     taskModeSelect?.value || "existing",
                     taskTextArea?.value || "",
-                    workStyleSelect?.value || "steady"
+                    workStyleSelect?.value || "steady",
+                    decisionModeSelect?.value || "autonomous"
                 ).catch(function (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -3270,6 +3315,10 @@
             '[data-input="work-style"]'
         );
 
+        const decisionMode = panel.querySelector(
+            '[data-input="decision-mode"]'
+        );
+
         const inputs = [
             '[data-input="injection-text"]',
             '[data-input="injection-after"]',
@@ -3283,6 +3332,10 @@
 
         if (workStyle) {
             workStyle.value = "steady";
+        }
+
+        if (decisionMode) {
+            decisionMode.value = "autonomous";
         }
 
         if (taskText) {
@@ -3332,6 +3385,7 @@
         selectedTaskMode = "existing";
         selectedTaskText = "";
         selectedWorkStyle = "steady";
+        selectedDecisionMode = "autonomous";
         runnerStartedAt = null;
         injectionSeq = 0;
         injectionSentCount = 0;
@@ -4645,7 +4699,8 @@ function getComposerText() {
     async function beginRun(
         mode,
         taskText,
-        workStyle
+        workStyle,
+        decisionMode
     ) {
         if (stopped) {
             throw new Error(
@@ -4662,11 +4717,15 @@ function getComposerText() {
         const style =
             normalizeWorkStyle(workStyle);
 
+        const decisions =
+            normalizeDecisionMode(decisionMode);
+
         const firstPrompt =
             buildFirstPrompt(
                 mode,
                 taskText,
-                style
+                style,
+                decisions
             );
 
         selectedTaskMode =
@@ -4678,6 +4737,7 @@ function getComposerText() {
                 : "";
 
         selectedWorkStyle = style;
+        selectedDecisionMode = decisions;
 
         runStarted = true;
         runnerStartedAt = Date.now();
@@ -4685,6 +4745,7 @@ function getComposerText() {
         record("run-started", {
             taskMode: selectedTaskMode,
             workStyle: selectedWorkStyle,
+            decisionMode: selectedDecisionMode,
             hasTaskText:
                 !!selectedTaskText
         });
@@ -4801,6 +4862,7 @@ function getComposerText() {
                 runStarted,
                 taskMode: selectedTaskMode,
                 workStyle: selectedWorkStyle,
+                decisionMode: selectedDecisionMode,
                 queuedIntermediateMessages:
                     injectionQueue.length,
                 injectionSentCount,
@@ -4894,18 +4956,27 @@ function getComposerText() {
         clearStepLimit,
         restart:
             restartRunner,
-        startExistingContext: function (workStyle) {
+        startExistingContext: function (
+            workStyle,
+            decisionMode
+        ) {
             return beginRun(
                 "existing",
                 "",
-                workStyle
+                workStyle,
+                decisionMode
             );
         },
-        startWithTask: function (taskText, workStyle) {
+        startWithTask: function (
+            taskText,
+            workStyle,
+            decisionMode
+        ) {
             return beginRun(
                 "new",
                 taskText,
-                workStyle
+                workStyle,
+                decisionMode
             );
         },
         sendMessageImmediately:

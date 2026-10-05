@@ -16,6 +16,9 @@ test("canonical runner completes a normal multi-step sequence", async ({ harness
   expect(sent).toHaveLength(2);
   expect(sent[0]).toContain("בכל פעם שאכתוב 'תמשיך לשלב הבא'");
   expect(sent[0]).toContain("המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית.");
+  expect(sent[0]).toContain("חלק את העבודה למקטעים לפי מטרות ותוצאות");
+  expect(sent[0]).toContain("העדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים");
+  expect(sent[0]).toContain("במצב Autonomous");
   expect(sent[0]).not.toContain("תתקדם שלב אחד בלבד");
   expect(sent[1]).toBe("תמשיך לשלב הבא");
 });
@@ -81,12 +84,37 @@ test("work-style selector can start a Deep run", async ({ harness }) => {
 
   const [firstPrompt] = await harness.sentMessages();
   expect(firstPrompt).toContain("התקדם שלב משמעותי אחד");
-  expect(firstPrompt).toContain("אל תעצור אחרי פעולה טכנית קטנה בלבד");
+  expect(firstPrompt).toContain("מקטע עבודה משמעותי");
+  expect(firstPrompt).toContain("חלק את העבודה למקטעים לפי מטרות ותוצאות");
+  expect(firstPrompt).toContain("העדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים");
   expect(firstPrompt).toContain("קבע נקודות מעבר טבעיות");
   expect(firstPrompt).not.toContain("תתקדם שלב אחד בלבד");
 
   const state = await harness.runnerState();
   expect(state.workStyle).toBe("deep");
+  expect(state.decisionMode).toBe("autonomous");
+});
+
+test("decision-mode selector can request Collaborative checkpoints", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [{ type: "normal", text: "סיימתי" }]
+  });
+
+  const decisionMode = harness.page.locator('[data-input="decision-mode"]');
+  await expect(decisionMode).toHaveValue("autonomous");
+  await decisionMode.selectOption("collaborative");
+  await harness.page.locator('[data-action="start-run"]').click();
+  await harness.waitForState("DONE");
+
+  const [firstPrompt] = await harness.sentMessages();
+  expect(firstPrompt).toContain("במצב Collaborative");
+  expect(firstPrompt).toContain("עצור בנקודת checkpoint");
+  expect(firstPrompt).toContain("חכה להכרעת המשתמש");
+  expect(firstPrompt).not.toContain("קבל בעצמך את ההחלטה הסבירה הטובה ביותר");
+
+  const state = await harness.runnerState();
+  expect(state.decisionMode).toBe("collaborative");
 });
 
 test("committed bookmarklet artifact boots the same runner in a browser", async ({ harness }) => {
@@ -99,7 +127,7 @@ test("committed bookmarklet artifact boots the same runner in a browser", async 
   }));
 
   expect(result).toEqual({
-    version: "3.24",
+    version: "3.25",
     state: "READY_TO_START",
     panel: true
   });
