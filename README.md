@@ -385,6 +385,8 @@ The runner also re-resolves the current turn from its pre-send turn snapshot on 
 
 A completed turn must never remain indefinitely in `WAITING_FOR_RESPONSE` merely because one preferred assistant wrapper was not found.
 
+If the tracked turn explicitly ends with terminal UI such as `Stopped thinking` while no Stop button is active and no Assistant body exists, the runner must not wait forever. A due queued intermediate message may take over at that safe boundary. Otherwise the run stops with a clear error instead of automatically resending the interrupted prompt.
+
 
 ## Bookmarklet distribution
 

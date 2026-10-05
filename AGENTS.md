@@ -226,6 +226,8 @@ The final UI may appear a fraction of a second before the last text DOM mutation
 
 Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is already present; use `WAITING_FOR_STABLE_RESPONSE` only while the final text is settling.
 
+If the tracked turn explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. Treat generation as terminated. If a queued intermediate message is already due, it may safely supersede that terminated cycle; otherwise stop with a clear diagnosable error.
+
 Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper.
 
 Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace DOM nodes.
