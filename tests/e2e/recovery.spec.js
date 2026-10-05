@@ -97,15 +97,16 @@ test("replacing a turn DOM node with the same turn key does not lose the active 
 });
 
 test("final UI appearing before the last DOM mutation does not evaluate an incomplete response", async ({ harness }) => {
-  await harness.load();
+  // This test validates the actual production stability window, so unlike
+  // ordinary deterministic E2E cases it intentionally loads canonical timing.
+  await harness.loadCanonical();
   await harness.setScenario({
     responses: [
       {
         type: "normal",
         text: "Almost finished",
-        finishDelayMs: 0,
         tailText: "\nסיימתי",
-        tailDelayMs: 30
+        tailDelayMs: 180
       }
     ]
   });
