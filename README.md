@@ -162,6 +162,19 @@ __sequenceRunner.stop()
 
 A backward-compatible alias, `__chatgptAutoContinueV3`, is also currently exposed.
 
+### Downloadable diagnostic snapshot
+
+The management panel includes **דווח תקלה / הורד צילום מצב**. It generates a versioned JSON snapshot of the current Runner state and the observable ChatGPT page without attempting recovery or changing the active run. The report includes Runner state/metrics/log, current-cycle metadata, turn inventory, a deep snapshot of the tracked turn, selector/control evidence, composer state, deterministic diagnostic observations and the current page DOM.
+
+The same builder is available programmatically:
+
+```js
+const snapshot = __sequenceRunner.createDiagnosticSnapshot()
+__sequenceRunner.downloadDiagnosticSnapshot()
+```
+
+The report intentionally may include visible conversation text and page DOM because those are required to diagnose selector and SPA failures. It does **not** intentionally collect cookies, authentication tokens, authorization headers, `localStorage`, `sessionStorage`, IndexedDB contents, saved passwords, arbitrary network bodies, unrelated browser history or extension data. Snapshot generation prefers partial evidence plus `captureErrors` over failing completely when an unexpected DOM shape is encountered.
+
 ## Maintenance
 
 `runner.js` is the canonical implementation.
