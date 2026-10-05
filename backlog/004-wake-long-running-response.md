@@ -1,6 +1,6 @@
 # 004 — Wake Long-Running Response
 
-Status: Open
+Status: Done
 
 ## Goal
 
@@ -11,6 +11,16 @@ When the same Assistant response remains actively generating for more than 10 mi
 ```
 
 The purpose is to nudge a response that may be stuck or stalled without requiring the user to notice it and intervene manually.
+
+## Implemented
+
+Implemented in Sequence Runner `v3.20` and merged through PR #12.
+
+The runner now tracks continuous active generation for the exact current response. After 10 minutes it sends one `מה קורה?` wake nudge through the existing immediate composer/send path. It never clicks `Stop`, never resends the runner continuation prompt, and never overwrites occupied composer text. Wake eligibility resets for the next tracked response.
+
+The implementation adds explicit wake diagnostics for threshold, deferred, sending, sent, failed, and cancelled states. Dedicated E2E coverage verifies completion before the threshold, one-shot sending after the threshold, eligibility reset on the next response, and safe deferral when the composer is occupied.
+
+Validation at merge time: bookmarklet check passed and the full regression suite passed `26/26` tests.
 
 ## Desired behavior
 
@@ -57,4 +67,4 @@ This task is complete when:
 
 ## Implementation note
 
-Before implementation, reconcile this feature with the current `AGENTS.md` long-running-response rule, which intentionally avoids automatic messages based only on elapsed wall-clock time. The final design should treat the 10-minute wake-up as an explicit, narrowly scoped one-shot policy rather than a general timer-based retry mechanism.
+The final implementation reconciles this feature with the `AGENTS.md` long-running-response rule as an explicit, narrowly scoped one-shot policy rather than a general timer-based retry mechanism.
