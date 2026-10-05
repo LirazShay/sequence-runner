@@ -67,6 +67,50 @@ test("same active response is nudged once after ten minutes without clicking Sto
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });
 
+test("wake inserts text before requiring Send while generation is active", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await waitForTrackedGeneration(harness);
+
+  await harness.page.evaluate(() => {
+    const composer = document.querySelector('[contenteditable="true"][data-composer-markdown]');
+    const sendButton = document.querySelector('button[aria-label="Send"]');
+
+    if (!composer || !sendButton) {
+      throw new Error("Mock composer/send controls not found");
+    }
+
+    sendButton.disabled = true;
+
+    composer.addEventListener("input", () => {
+      const text = String(composer.innerText || composer.textContent || "").trim();
+      if (text) {
+        sendButton.disabled = false;
+      }
+    });
+  });
+
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
+  await harness.waitForSentCount(2);
+
+  const sent = await harness.sentMessages();
+  expect(sent[1]).toBe("מה קורה?");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some(
+    (entry) => entry.event === "long-wait-wake-deferred" && entry.reason === "send-unavailable"
+  )).toBeFalsy();
+  expect(log.filter((entry) => entry.event === "long-wait-wake-sent")).toHaveLength(1);
+
+  const events = await harness.events();
+  expect(events.some((event) => event.type === "stop-click")).toBeFalsy();
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
+
 test("wake eligibility resets for the next tracked Assistant response", async ({ harness }) => {
   await harness.load();
   await installWakeClock(harness);
