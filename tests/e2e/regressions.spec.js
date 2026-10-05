@@ -57,3 +57,71 @@ test("streamed response is evaluated only after generation ends and text stabili
   const events = await harness.events();
   expect(events.filter((event) => event.type === "assistant-chunk")).toHaveLength(4);
 });
+
+test("deferred continuation is superseded by a manually sent completed turn", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "First segment complete.", finishDelayMs: 250 },
+      { type: "normal", text: "Manual response complete.\nסיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() => window.__mockChatGPT.setComposerText("MANUAL_OVERRIDE"));
+  await harness.waitForState("WAITING_FOR_COMPOSER", 4000);
+  await harness.page.locator('button[aria-label="Send"]').click();
+  await harness.waitForState("DONE", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toBe("MANUAL_OVERRIDE");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "continuation-superseded-by-external-turn" &&
+    entry.trigger === "pending-resume"
+  )).toBeTruthy();
+});
+
+test("manual turn during continuation delay is evaluated before stale continuation", async ({ harness }) => {
+  await harness.loadCanonical();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "First segment complete." },
+      { type: "normal", text: "Manual response complete.\nסיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(async () => {
+    await new Promise((resolve, reject) => {
+      const deadline = Date.now() + 6000;
+      const timer = setInterval(() => {
+        if (window.__sequenceRunner.getState().state === "READY_TO_CONTINUE") {
+          clearInterval(timer);
+          window.__mockChatGPT.setComposerText("MANUAL_FAST_OVERRIDE");
+          document.querySelector('button[aria-label="Send"]')?.click();
+          resolve();
+          return;
+        }
+
+        if (Date.now() >= deadline) {
+          clearInterval(timer);
+          reject(new Error("READY_TO_CONTINUE was not observed before the deadline."));
+        }
+      }, 5);
+    });
+  });
+  await harness.waitForState("DONE", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toBe("MANUAL_FAST_OVERRIDE");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "continuation-superseded-by-external-turn" &&
+    entry.trigger === "before-send"
+  )).toBeTruthy();
+});

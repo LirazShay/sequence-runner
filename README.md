@@ -395,9 +395,11 @@ If an automatic continuation becomes due while:
 
 the runner no longer treats that situation as a fatal error. Instead it stores the pending automatic send and enters a recoverable waiting state.
 
-The runner automatically retries when the composer is empty and ChatGPT is idle. The panel also exposes **Continue automation** as a manual recovery action.
+Before retrying a pending continuation, the runner compares the current turns with the snapshot captured when that continuation became due. If a newer user-created turn appeared in the meantime, that turn supersedes the stale continuation: the pending continuation is discarded and the newer assistant response is tracked and evaluated first. The same snapshot is preserved across repeated deferrals, so a manual turn cannot be lost simply because the composer or ChatGPT remains busy for another retry cycle. This also covers a manual send that lands during the short continuation delay before the automatic send begins.
 
-This means a user can type or send a message manually while the runner is active without permanently killing the sequence.
+If no newer turn exists, the runner automatically retries when the composer is empty and ChatGPT is idle. The panel also exposes **Continue automation** as a manual recovery action.
+
+This means a user can type or send a message manually while the runner is active without permanently killing the sequence or allowing an obsolete continuation to run afterward.
 
 Relevant API:
 

@@ -335,7 +335,7 @@ The explicit step-limit safety guard has higher priority than queued intermediat
 
 Queued messages must preserve the one-send/one-completed-turn invariant and must not cause duplicate continuation sends.
 
-If an automatic send is blocked because the composer contains user text or ChatGPT is busy with external/manual activity, do not fail the runner. Preserve the pending automatic send, enter a recoverable waiting state, and resume only after the composer is empty and ChatGPT is idle. Never overwrite user text.
+If an automatic continuation is blocked because the composer contains user text or ChatGPT is busy with external/manual activity, do not fail the runner. Preserve the pending automatic send and the original pre-continuation turn snapshot. Before retrying, check whether a newer user-created turn appeared after that snapshot. If it did, that newer turn supersedes the stale continuation: cancel the pending continuation and evaluate the newer assistant response first. If no newer turn exists, resume only after the composer is empty and ChatGPT is idle. Preserve the same snapshot across repeated deferrals. Never overwrite user text.
 
 The management panel must expose the queued intermediate messages, not only a count. Users must be able to edit message text, change the relative schedule, delete individual messages and reorder messages that share the same target boundary. Reordering must not silently override scheduling semantics across different target boundaries.
 
