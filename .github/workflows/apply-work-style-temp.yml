@@ -1,0 +1,51 @@
+name: Temporary Work Style Implementation
+
+on:
+  push:
+    branches:
+      - feature/work-style-flavours
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/work-style-flavours
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply work-style implementation
+        run: python3 scripts/apply-work-style-temp.py
+
+      - name: Build bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - name: Run regression suite
+        run: npm test
+
+      - name: Commit implementation and remove temporary helpers
+        run: |
+          rm .github/workflows/apply-work-style-temp.yml
+          rm scripts/apply-work-style-temp.py
+          git config user.name "Sequence Runner Bot"
+          git config user.email "sequence-runner-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Add Steady and Deep work styles"
+          git push origin HEAD:feature/work-style-flavours
