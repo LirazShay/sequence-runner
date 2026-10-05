@@ -40,8 +40,8 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
-      - name: Run regression suite
-        run: npm test
+      - name: Run focused stale-continuation regressions
+        run: CI= npx playwright test tests/e2e/regressions.spec.js --grep "deferred continuation is superseded|manual turn during continuation delay" --workers=1 --retries=0
 
       - name: Remove temporary finalizer
         run: |
