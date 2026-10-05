@@ -218,7 +218,7 @@ jobs:
           '''
           if 'runner follows the latest post-send turn when the user sends messages while ChatGPT is working' in text:
               raise SystemExit('recovery.spec.js: regression test already exists')
-          recovery.write_text(text.rstrip() + test_block + '\n', encoding='utf-8')
+          recovery.write_text(text.rstrip() + test_block.rstrip() + '\n', encoding='utf-8')
 
           replace_once('tests/e2e/core.spec.js', 'version: "3.22",', 'version: "3.23",')
           p = Path('tests/e2e/diagnostic.spec.js')
