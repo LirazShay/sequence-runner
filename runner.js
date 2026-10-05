@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.25";
+    const VERSION = "3.26";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -2204,6 +2204,8 @@
                   prompt: pendingAutoSend.prompt,
                   label: pendingAutoSend.label,
                   reason: pendingAutoSend.reason,
+                  baselineTurnKeys:
+                      pendingAutoSend.baselineTurnKeys || [],
                   deferredAt: pendingAutoSend.deferredAt
               }
             : null;
@@ -3472,54 +3474,54 @@
     }
 
     function findNewTurn(beforeKeys) {
-    const candidates = getTurns().filter(
-        function (turn) {
-            return !beforeKeys.has(
-                getTurnKey(turn)
-            );
-        }
-    );
-
-    return candidates.at(-1) || null;
-}
-
-function resolveCycleTurn(cycle) {
-    const current =
-        getTurnByKey(cycle.turnKey);
-
-    const latestPostSendTurn =
-        findNewTurn(
-            cycle.beforeKeys
+        const candidates = getTurns().filter(
+            function (turn) {
+                return !beforeKeys.has(
+                    getTurnKey(turn)
+                );
+            }
         );
 
-    const resolved =
-        latestPostSendTurn || current;
-
-    if (!resolved) {
-        return null;
+        return candidates.at(-1) || null;
     }
 
-    const resolvedKey =
-        getTurnKey(resolved);
+    function resolveCycleTurn(cycle) {
+        const current =
+            getTurnByKey(cycle.turnKey);
 
-    if (
-        resolvedKey &&
-        resolvedKey !== cycle.turnKey
-    ) {
-        record("turn-rebound", {
-            id: cycle.id,
-            from: cycle.turnKey,
-            to: resolvedKey,
-            reason: "latest-post-send-turn"
-        });
+        const latestPostSendTurn =
+            findNewTurn(
+                cycle.beforeKeys
+            );
 
-        cycle.turnKey = resolvedKey;
+        const resolved =
+            latestPostSendTurn || current;
+
+        if (!resolved) {
+            return null;
+        }
+
+        const resolvedKey =
+            getTurnKey(resolved);
+
+        if (
+            resolvedKey &&
+            resolvedKey !== cycle.turnKey
+        ) {
+            record("turn-rebound", {
+                id: cycle.id,
+                from: cycle.turnKey,
+                to: resolvedKey,
+                reason: "latest-post-send-turn"
+            });
+
+            cycle.turnKey = resolvedKey;
+        }
+
+        return resolved;
     }
 
-    return resolved;
-}
-
-function getComposerText() {
+    function getComposerText() {
         const composer = getComposer();
 
         if (!composer) {
@@ -3534,15 +3536,106 @@ function getComposerText() {
         );
     }
 
+    function normalizeTurnKeySnapshot(value) {
+        if (value instanceof Set) {
+            return [...value].filter(Boolean);
+        }
+
+        if (Array.isArray(value)) {
+            return value.filter(Boolean);
+        }
+
+        return getTurns()
+            .map(getTurnKey)
+            .filter(Boolean);
+    }
+
+    function adoptExternalTurnForContinuation(
+        baselineTurnKeys,
+        trigger,
+        pending
+    ) {
+        const baseline =
+            normalizeTurnKeySnapshot(
+                baselineTurnKeys
+            );
+
+        if (!baseline.length) {
+            return false;
+        }
+
+        const turn = findNewTurn(
+            new Set(baseline)
+        );
+
+        if (!turn) {
+            return false;
+        }
+
+        const turnKey = getTurnKey(turn);
+        const stopButton = getStopButton();
+
+        pendingAutoSend = null;
+        sendLocked = false;
+
+        currentCycle = {
+            id: "external-" + Date.now(),
+            label: "external",
+            prompt: null,
+            beforeKeys: new Set(baseline),
+            sentAt: Date.now(),
+            turnKey,
+            sawStop: !!stopButton,
+            lastText: null,
+            lastTextChangedAt: 0,
+            longWaitNoticeBucket: -1,
+            activeGenerationStartedAt: null,
+            wakeState: "idle",
+            wakeThresholdReachedAt: null,
+            wakeDeferredReason: null,
+            wakeSentAt: null,
+            processed: false
+        };
+
+        record(
+            "continuation-superseded-by-external-turn",
+            {
+                trigger,
+                pendingLabel:
+                    pending?.label || null,
+                pendingReason:
+                    pending?.reason || null,
+                turnKey
+            }
+        );
+
+        setState(
+            stopButton
+                ? "GENERATING"
+                : "WAITING_FOR_RESPONSE",
+            "👤 זוהתה הודעת משתמש חדשה; בודק קודם את התשובה החדשה...",
+            "#b45309"
+        );
+
+        renderPanel();
+        scheduleEvaluate();
+        return true;
+    }
+
     function deferAutoSend(
         prompt,
         label,
-        reason
+        reason,
+        baselineTurnKeys
     ) {
         pendingAutoSend = {
             prompt,
             label,
             reason,
+            baselineTurnKeys:
+                normalizeTurnKeySnapshot(
+                    baselineTurnKeys
+                ),
             deferredAt: Date.now()
         };
 
@@ -3580,6 +3673,17 @@ function getComposerText() {
             return false;
         }
 
+        if (
+            pendingAutoSend.label === "continue" &&
+            adoptExternalTurnForContinuation(
+                pendingAutoSend.baselineTurnKeys,
+                "pending-resume",
+                pendingAutoSend
+            )
+        ) {
+            return true;
+        }
+
         if (getComposerText()) {
             setState(
                 "WAITING_FOR_COMPOSER",
@@ -3612,7 +3716,9 @@ function getComposerText() {
                 pending.prompt,
                 pending.label,
                 {
-                    deferWhenBlocked: true
+                    deferWhenBlocked: true,
+                    deferBaselineTurnKeys:
+                        pending.baselineTurnKeys
                 }
             );
 
@@ -3802,13 +3908,32 @@ function getComposerText() {
         const opts = options || {};
         const deferWhenBlocked =
             opts.deferWhenBlocked !== false;
+        const deferBaselineTurnKeys =
+            opts.deferBaselineTurnKeys
+                ? normalizeTurnKeySnapshot(
+                    opts.deferBaselineTurnKeys
+                )
+                : null;
+
+        if (
+            label === "continue" &&
+            deferBaselineTurnKeys &&
+            adoptExternalTurnForContinuation(
+                deferBaselineTurnKeys,
+                "before-send",
+                null
+            )
+        ) {
+            return false;
+        }
 
         if (getStopButton()) {
             if (deferWhenBlocked) {
                 deferAutoSend(
                     prompt,
                     label,
-                    "chatgpt-busy"
+                    "chatgpt-busy",
+                    deferBaselineTurnKeys
                 );
                 return false;
             }
@@ -3823,7 +3948,8 @@ function getComposerText() {
                 deferAutoSend(
                     prompt,
                     label,
-                    "composer-occupied"
+                    "composer-occupied",
+                    deferBaselineTurnKeys
                 );
                 return false;
             }
@@ -3866,7 +3992,8 @@ function getComposerText() {
                 deferAutoSend(
                     prompt,
                     label,
-                    "composer-occupied"
+                    "composer-occupied",
+                    deferBaselineTurnKeys
                 );
                 return false;
             }
@@ -4392,6 +4519,12 @@ function getComposerText() {
         );
 
         const completedCycle = cycle;
+        const continuationBaselineTurnKeys =
+            new Set(
+                getTurns()
+                    .map(getTurnKey)
+                    .filter(Boolean)
+            );
 
         setTimeout(function () {
             if (
@@ -4419,7 +4552,11 @@ function getComposerText() {
 
             sendPrompt(
                 CONFIG.REGULAR_PROMPT,
-                "continue"
+                "continue",
+                {
+                    deferBaselineTurnKeys:
+                        continuationBaselineTurnKeys
+                }
             ).catch(function (err) {
                 fail(err.message, err);
             });
