@@ -503,6 +503,18 @@
 
   window.__mockChatGPT = api;
 
+  composer.addEventListener("paste", (event) => {
+    const text = event.clipboardData?.getData("text/plain");
+    if (typeof text !== "string") {
+      return;
+    }
+
+    event.preventDefault();
+    composer.textContent = text;
+    dispatchComposerInput();
+    record("composer-paste", { length: text.length });
+  });
+
   sendButton.addEventListener("click", sendCurrentMessage);
   composerForm.addEventListener("submit", (event) => {
     event.preventDefault();
