@@ -67,6 +67,31 @@ test("project handoff uses the exact project New Chat action and stays in the pr
   expect(mockState.path).toMatch(/^\/g\/g-p-mock\/c\/mock-chat-/);
 });
 
+test("Deep work style persists across automatic handoff", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: handoffResponse("DEEP_NEXT_TASK") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext("deep"));
+  await harness.waitForState("DONE");
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+
+  for (const prompt of sent) {
+    expect(prompt).toContain("התקדם שלב משמעותי אחד");
+    expect(prompt).toContain("קבע נקודות מעבר טבעיות");
+    expect(prompt).toContain("מה הצ'אט הנוכחי צריך לסיים ומה הצ'אט הבא אמור לקחת");
+  }
+
+  expect(sent[1]).toContain("DEEP_NEXT_TASK");
+  expect((await harness.runnerState()).workStyle).toBe("deep");
+});
+
 test("malformed handoff stops with an explicit error instead of silently continuing", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({

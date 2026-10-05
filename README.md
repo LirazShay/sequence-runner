@@ -45,6 +45,24 @@ It opens the door to:
 
 The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Two deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, and the one-shot 10-minute long-running-response wake nudge.
 
+## Work style
+
+The start panel exposes a per-run **Work Style** configuration with two deliberately simple flavours:
+
+- **Steady** (default) — tells the assistant to keep progressing naturally until a sensible stopping point. It removes the old `one step only` pressure without forcing a large work block.
+- **Deep** — tells the assistant to complete a substantial stage, including related sub-steps, checks and fixes, before stopping. It also strengthens chat-rollover planning: define natural boundaries, finish the current chat's work segment, decide what the next chat should own, persist durable state, and prefer a fresh chat when the next segment benefits from clean context.
+
+The word `שלב` and the continuation command `תמשיך לשלב הבא` remain part of the protocol; the style changes how much coherent work the assistant is encouraged to complete for that continuation. A selected style is preserved automatically across an automatic chat handoff.
+
+Programmatic starts accept the same optional style (`"steady"` or `"deep"`):
+
+```js
+__sequenceRunner.startExistingContext("deep")
+__sequenceRunner.startWithTask("TASK_TEXT", "deep")
+```
+
+Unknown or omitted style values safely fall back to `steady`.
+
 ## Technical design
 
 The implementation is state-machine based rather than timer-driven spam/polling.
