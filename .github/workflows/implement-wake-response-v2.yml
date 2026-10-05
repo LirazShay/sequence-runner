@@ -1,0 +1,49 @@
+name: Implement wake response v2
+
+on:
+  push:
+    branches:
+      - feature/wake-long-running-response
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/wake-long-running-response
+
+      - name: Apply wake patch
+        run: python scripts/apply-wake-temp.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - name: Generate bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Run regression suite
+        run: npm test
+
+      - name: Commit validated implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.js runner.min.js tests/e2e/wake.spec.js AGENTS.md README.md
+          git diff --cached --quiet || git commit -m "Add one-shot long-response wake nudge"
+          git push
