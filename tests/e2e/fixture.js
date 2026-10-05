@@ -75,6 +75,16 @@ async function installMockRouting(page) {
   });
 }
 
+async function loadRunnerSource(page, source, url) {
+  await page.goto(url);
+  await page.waitForFunction(() => !!window.__mockChatGPT);
+  await page.addScriptTag({ content: source });
+  await page.waitForFunction(() => !!window.__sequenceRunner);
+  await expect.poll(
+    () => page.evaluate(() => window.__sequenceRunner.getState().state)
+  ).toBe("READY_TO_START");
+}
+
 export const test = base.extend({
   harness: async ({ page }, use) => {
     await installMockRouting(page);
@@ -83,13 +93,11 @@ export const test = base.extend({
       page,
 
       async load(url = "http://mock.local/c/start") {
-        await page.goto(url);
-        await page.waitForFunction(() => !!window.__mockChatGPT);
-        await page.addScriptTag({ content: fastTestRunnerSource });
-        await page.waitForFunction(() => !!window.__sequenceRunner);
-        await expect.poll(
-          () => page.evaluate(() => window.__sequenceRunner.getState().state)
-        ).toBe("READY_TO_START");
+        await loadRunnerSource(page, fastTestRunnerSource, url);
+      },
+
+      async loadCanonical(url = "http://mock.local/c/start") {
+        await loadRunnerSource(page, canonicalRunnerSource, url);
       },
 
       async loadBookmarklet(url = "http://mock.local/c/start") {
