@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.18";
+    const VERSION = "3.19";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",

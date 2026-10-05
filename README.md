@@ -167,6 +167,8 @@ A backward-compatible alias, `__chatgptAutoContinueV3`, is also currently expose
 
 Whenever it changes, regenerate `runner.min.js` from the same source. The compact file should not be edited independently.
 
+The distribution file must be directly bookmarklet-safe while preserving the exact minified program. Minify `runner.js` without semantic rewrites, then protect literal percent characters by writing `%25` in the final bookmarklet URL. Do not manually rewrite or broadly re-encode the JavaScript. As a required verification, remove the `javascript:` prefix, URL-decode once, and require the result to be byte-for-byte identical to the freshly generated minified JavaScript payload; syntax-check that decoded payload as JavaScript. This prevents browser URL decoding from corrupting expressions such as the modulo operator in `value%3600`.
+
 The integration depends on the ChatGPT web DOM, so selectors may require maintenance if the UI changes. The state-machine logic is intentionally separated from DOM lookup helpers to keep those changes localized.
 
 ## Current status
