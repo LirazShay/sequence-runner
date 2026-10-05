@@ -1,0 +1,47 @@
+name: Bootstrap E2E Suite
+
+on:
+  push:
+    branches:
+      - test/mock-chatgpt-e2e-suite
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: test/mock-chatgpt-e2e-suite
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - name: Generate package lock
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full regression suite
+        run: npm test
+
+      - name: Commit package lock
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git diff --cached --quiet || git commit -m "Lock E2E test dependencies"
+          git push
