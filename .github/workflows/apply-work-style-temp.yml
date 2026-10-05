@@ -27,6 +27,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Correct temporary helper occurrence handling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/apply-work-style-temp.py")
+          text = path.read_text(encoding="utf-8")
+
+          marker = '    "diagnostic/public work-style state",\n)\n'
+          marker_pos = text.index(marker)
+          expected_pos = text.rfind("    2,\n", 0, marker_pos)
+          if expected_pos < 0:
+              raise RuntimeError("Could not find diagnostic/public expected-count literal")
+          text = text[:expected_pos] + "    3,\n" + text[expected_pos + len("    2,\n"):]
+
+          block_start = text.index("runner = replace_once(\n", marker_pos + len(marker))
+          block_end_marker = '    "run-started work style",\n)\n\n'
+          block_end = text.index(block_end_marker, block_start) + len(block_end_marker)
+          block = text[block_start:block_end]
+          if "hasTaskText" not in block:
+              raise RuntimeError("Unexpected block after diagnostic/public replacement")
+          text = text[:block_start] + text[block_end:]
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
       - name: Apply work-style implementation
         run: python3 scripts/apply-work-style-temp.py
 
