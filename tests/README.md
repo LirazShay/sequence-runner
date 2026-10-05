@@ -27,7 +27,9 @@ Do not weaken production behavior to make a test pass. Fix the mock when the moc
 The browser suite is intended to stay fast enough to run on every PR without becoming a development bottleneck.
 
 - CI runs the tests fully parallel with six workers.
-- The complete Playwright suite has a hard CI global budget of 30 seconds.
+- The complete Playwright suite has a hard CI global budget of 40 seconds.
+- A healthy full run should normally stay around 30 seconds or below, leaving headroom for growth and one retry.
+- Traces are recorded on the first retry rather than for every successful test.
 - Prefer deterministic mock clocks/timing acceleration over real sleeps.
 - Do not reduce production safety delays merely to speed up tests.
 - A test that needs to validate a timing relationship should use proportionally shortened mock timing or a controlled clock while preserving the same ordering invariant.
@@ -125,7 +127,7 @@ This permanently protects the `%` transport failure that broke the v3.18 bookmar
 
 ## CI diagnostics
 
-The permanent regression workflow runs `npm test` on pull requests and `main`. On browser-test failure Playwright keeps a trace and screenshot so the exact browser state can be inspected.
+The permanent regression workflow runs `npm test` on pull requests and `main`. On browser-test failure Playwright keeps a trace on the first retry and a screenshot on failure so the exact browser state can be inspected without paying trace overhead on every green test.
 
 The Mock ChatGPT event timeline is also available from:
 
