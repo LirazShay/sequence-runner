@@ -45,3 +45,5 @@ jobs:
           git add package-lock.json
           git diff --cached --quiet || git commit -m "Lock E2E test dependencies"
           git push
+
+# Temporary bootstrap workflow; remove after the suite is green and package-lock.json is committed.
