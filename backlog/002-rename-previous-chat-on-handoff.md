@@ -8,6 +8,45 @@ When Sequence Runner performs an automatic handoff to a new ChatGPT conversation
 
 This is intentionally a **design + investigation + implementation** task. Do not jump directly to a guessed selector or naming format.
 
+## Agreed naming policy
+
+The outgoing chat should be named from the chat number stated in its **first user message**, rather than from the existing ChatGPT-generated title.
+
+Examples of source text that should be recognized include:
+
+```text
+אני צאט 7 תתחיל
+אני צ'אט 7 תתחיל
+אני צאט מספר 7 תתחיל
+זו המשימה שעליך לבצע כעת: אני צאט 7 תתחיל
+```
+
+When a clear chat number `N` is found, rename the outgoing conversation to exactly:
+
+```text
+צ'אט N
+```
+
+For example, a chat whose first user message contains `אני צאט 7` should be renamed to:
+
+```text
+צ'אט 7
+```
+
+Initial policy decisions:
+
+- The first user message is the source of truth for the sequence chat number.
+- Do not derive the new title from the current/generated conversation title.
+- If no clear supported chat-number pattern is found, leave the title unchanged.
+- If the title is already exactly `צ'אט N`, do nothing.
+- Rename should happen before opening the fresh chat, while the Runner still unambiguously owns the outgoing conversation.
+- Rename is cosmetic and must never block handoff. If rename fails, log a clear diagnosable failure and continue the normal handoff.
+- Do not implement this yet until the UI/API rename mechanism has been investigated and verified.
+
+Open design question before implementation:
+
+- Decide exactly how broad the accepted first-message syntax should be beyond the agreed `אני צאט ...` / `אני צ'אט ...` forms, for example whether bare `צאט 7` or English `Chat 7` should also count.
+
 ## Required investigation
 
 Before implementation, determine the safest and simplest approach for the current ChatGPT web UI:
