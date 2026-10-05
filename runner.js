@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.17";
+    const VERSION = "3.18";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -885,6 +885,42 @@
             assistant.textContent ||
             ""
         );
+    }
+
+    function getTerminalResponseMarker(turn) {
+        if (!turn) {
+            return null;
+        }
+
+        const terminalTexts = new Set([
+            "Stopped thinking",
+            "Stopped generating"
+        ]);
+
+        const candidates = [
+            ...turn.querySelectorAll("span,div")
+        ];
+
+        for (const candidate of candidates) {
+            if (
+                candidate.children.length > 0 ||
+                candidate.closest(SELECTORS.userMessage)
+            ) {
+                continue;
+            }
+
+            const text = normalizeText(
+                candidate.innerText ||
+                candidate.textContent ||
+                ""
+            );
+
+            if (terminalTexts.has(text)) {
+                return text;
+            }
+        }
+
+        return null;
     }
 
     function sleep(ms) {
@@ -3258,6 +3294,79 @@
         }
     }
 
+    function handleTerminalResponseWithoutAssistant(
+        cycle,
+        marker
+    ) {
+        if (
+            stopped ||
+            currentCycle !== cycle ||
+            cycle.processed
+        ) {
+            return;
+        }
+
+        cycle.processed = true;
+        processedTurnKeys.add(cycle.turnKey);
+        sendLocked = false;
+
+        record(
+            "response-terminated-without-assistant",
+            {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                marker,
+                queuedIntermediateMessages:
+                    injectionQueue.length
+            }
+        );
+
+        const dueInjection =
+            takeDueInjection();
+
+        if (!dueInjection) {
+            fail(
+                "ChatGPT stopped the response before producing an assistant message. Automatic resend was not attempted."
+            );
+            return;
+        }
+
+        record(
+            "terminal-response-recovered-by-injection",
+            {
+                id: cycle.id,
+                injectionId: dueInjection.id,
+                marker
+            }
+        );
+
+        setState(
+            "READY_TO_INJECT",
+            "📝 התגובה נעצרה; שולח את הודעת הביניים הממתינה...",
+            "#7c3aed"
+        );
+
+        const terminatedCycle = cycle;
+
+        setTimeout(function () {
+            if (
+                stopped ||
+                currentCycle !== terminatedCycle
+            ) {
+                return;
+            }
+
+            currentCycle = null;
+
+            sendPrompt(
+                dueInjection.text,
+                "injection"
+            ).catch(function (err) {
+                fail(err.message, err);
+            });
+        }, CONFIG.CONTINUE_DELAY_MS);
+    }
+
     function completeCycle(cycle, text) {
         if (
             stopped ||
@@ -3515,6 +3624,19 @@
 
         const text =
             getAssistantText(turn);
+
+        const terminalMarker =
+            !stopButton && !text
+                ? getTerminalResponseMarker(turn)
+                : null;
+
+        if (terminalMarker) {
+            handleTerminalResponseWithoutAssistant(
+                cycle,
+                terminalMarker
+            );
+            return;
+        }
 
         if (
             !stopButton &&
