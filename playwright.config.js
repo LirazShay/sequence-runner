@@ -16,8 +16,7 @@ export default defineConfig({
     channel: "chrome",
     headless: true,
     trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure"
+    screenshot: "only-on-failure"
   },
   outputDir: "test-results"
 });
