@@ -545,3 +545,16 @@ Read the repository first and continue from its current state.
 
 If the user asks only for planning, do not start implementation.
 If the user asks for implementation, make the change in the repository when tools allow it.
+
+
+## Regression-test contract
+
+The repository contains a deterministic Mock ChatGPT + Playwright E2E suite under `tests/`. It runs the real `runner.js`; production runner logic must never be replaced with a test double.
+
+Before merging a behavior change, run `npm test`. This command also verifies that `runner.min.js` is exactly the bookmarklet generated from the canonical source, including the required bookmarklet transport decoding invariant.
+
+When a production bug can be reproduced deterministically, add the failing scenario/test before or together with the fix and keep it permanently as regression coverage. Do not weaken production behavior merely to satisfy the fixture. If the fixture differs from a verified live ChatGPT DOM behavior, fix the fixture.
+
+Keep Mock ChatGPT's production-facing locators aligned with verified selectors in this document. The deterministic mock cannot detect live-site selector drift by itself, so selector changes still require a real DOM probe.
+
+Use `tests/README.md` for the test architecture and local commands.
