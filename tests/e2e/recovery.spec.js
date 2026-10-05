@@ -103,6 +103,7 @@ test("final UI appearing before the last DOM mutation does not evaluate an incom
       {
         type: "normal",
         text: "Almost finished",
+        finishDelayMs: 0,
         tailText: "\nסיימתי",
         tailDelayMs: 30
       }
