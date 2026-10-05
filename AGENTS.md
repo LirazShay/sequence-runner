@@ -186,7 +186,7 @@ Never allow duplicate sends for the same cycle.
 
 Before sending, capture the currently known turn keys.
 
-After sending, process only a new turn created for that sent prompt.
+After sending, the newest turn created after that send is authoritative. If the user sends additional messages while ChatGPT is working, follow the newest post-send turn instead of staying pinned to the Runner prompt text.
 
 ### New assistant response only
 

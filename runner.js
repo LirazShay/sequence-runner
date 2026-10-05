@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.22";
+    const VERSION = "3.23";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -3365,102 +3365,55 @@
         renderPanel();
     }
 
-    function findNewTurn(beforeKeys, expectedPrompt) {
-        const expected =
-            normalizeText(expectedPrompt);
-
-        const candidates = getTurns().filter(
-            function (turn) {
-                return !beforeKeys.has(
-                    getTurnKey(turn)
-                );
-            }
-        );
-
-        const matching = candidates.filter(
-            function (turn) {
-                const user =
-                    turn.querySelector(
-                        SELECTORS.userMessage
-                    );
-
-                const userText =
-                    normalizeText(
-                        user?.innerText ||
-                        user?.textContent ||
-                        ""
-                    );
-
-                return userText === expected;
-            }
-        );
-
-        const pool =
-            matching.length > 0
-                ? matching
-                : candidates.length === 1
-                    ? candidates
-                    : [];
-
-        if (!pool.length) {
-            return null;
+    function findNewTurn(beforeKeys) {
+    const candidates = getTurns().filter(
+        function (turn) {
+            return !beforeKeys.has(
+                getTurnKey(turn)
+            );
         }
+    );
 
-        pool.sort(function (a, b) {
-            return scoreTurnNode(b) -
-                scoreTurnNode(a);
+    return candidates.at(-1) || null;
+}
+
+function resolveCycleTurn(cycle) {
+    const current =
+        getTurnByKey(cycle.turnKey);
+
+    const latestPostSendTurn =
+        findNewTurn(
+            cycle.beforeKeys
+        );
+
+    const resolved =
+        latestPostSendTurn || current;
+
+    if (!resolved) {
+        return null;
+    }
+
+    const resolvedKey =
+        getTurnKey(resolved);
+
+    if (
+        resolvedKey &&
+        resolvedKey !== cycle.turnKey
+    ) {
+        record("turn-rebound", {
+            id: cycle.id,
+            from: cycle.turnKey,
+            to: resolvedKey,
+            reason: "latest-post-send-turn"
         });
 
-        return pool[0];
+        cycle.turnKey = resolvedKey;
     }
 
-    function resolveCycleTurn(cycle) {
-        const current =
-            getTurnByKey(cycle.turnKey);
+    return resolved;
+}
 
-        const rediscovered =
-            findNewTurn(
-                cycle.beforeKeys,
-                cycle.prompt
-            );
-
-        let resolved = current;
-
-        if (
-            rediscovered &&
-            (
-                !current ||
-                scoreTurnNode(rediscovered) >
-                    scoreTurnNode(current)
-            )
-        ) {
-            resolved = rediscovered;
-        }
-
-        if (!resolved) {
-            return null;
-        }
-
-        const resolvedKey =
-            getTurnKey(resolved);
-
-        if (
-            resolvedKey &&
-            resolvedKey !== cycle.turnKey
-        ) {
-            record("turn-rebound", {
-                id: cycle.id,
-                from: cycle.turnKey,
-                to: resolvedKey
-            });
-
-            cycle.turnKey = resolvedKey;
-        }
-
-        return resolved;
-    }
-
-    function getComposerText() {
+function getComposerText() {
         const composer = getComposer();
 
         if (!composer) {

@@ -116,3 +116,55 @@ test("final UI appearing before the last DOM mutation does not evaluate an incom
   const events = await harness.events();
   expect(events.some((event) => event.type === "assistant-tail-mutated")).toBeTruthy();
 });
+
+test("runner follows the latest post-send turn when the user sends messages while ChatGPT is working", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "hold" },
+      { type: "silent" },
+      {
+        type: "normal",
+        replaceActiveGeneration: true,
+        text: "Manual messages incorporated.\nסיימתי"
+      }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("GENERATING");
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("MANUAL_MESSAGE_ONE");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.turnKey)
+  ).toBe("mock-turn-2");
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("MANUAL_MESSAGE_TWO");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.turnKey)
+  ).toBe("mock-turn-3");
+
+  await harness.waitForState("DONE");
+
+  expect(await harness.sentMessages()).toHaveLength(3);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "turn-rebound" &&
+    entry.to === "mock-turn-2" &&
+    entry.reason === "latest-post-send-turn"
+  )).toBeTruthy();
+  expect(log.some((entry) =>
+    entry.event === "turn-rebound" &&
+    entry.to === "mock-turn-3" &&
+    entry.reason === "latest-post-send-turn"
+  )).toBeTruthy();
+});
