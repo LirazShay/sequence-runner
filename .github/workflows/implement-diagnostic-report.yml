@@ -21,7 +21,9 @@ jobs:
           ref: feature/built-in-diagnostic-report
 
       - name: Apply diagnostic patch
-        run: python scripts/apply-diagnostic-temp.py
+        run: |
+          python scripts/apply-diagnostic-temp.py
+          python scripts/fix-diagnostic-test-temp.py
 
       - uses: actions/setup-node@v4
         with:
