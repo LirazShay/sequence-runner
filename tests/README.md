@@ -4,7 +4,11 @@ This directory contains the deterministic browser regression environment for `se
 
 ## Principle
 
-The E2E suite runs the real canonical `runner.js` against a controlled Mock ChatGPT browser page. The mock reproduces the DOM contracts and behaviors that the production runner integrates with; the runner itself is not mocked.
+The E2E suite runs the canonical `runner.js` logic against a controlled Mock ChatGPT browser page. The mock reproduces the DOM contracts and behaviors that the production runner integrates with; the runner itself is not mocked.
+
+For normal E2E loading, the fixture mechanically shortens only deterministic wall-clock constants such as response-stability, continuation delay, watchdog interval and handoff-ready delay. This keeps the exact production decisions and DOM logic while avoiding seconds of artificial waiting in every mock test. The replacement is assertion-guarded so a production timing rename/change cannot silently stop being accelerated.
+
+The dedicated bookmarklet boot test does **not** apply those timing replacements: it loads the committed `runner.min.js` artifact exactly as shipped. Timing-sensitive regression tests can also use `harness.loadCanonical()` to validate the real production timing contract instead of the accelerated profile.
 
 The intended maintenance loop is:
 
@@ -17,6 +21,18 @@ real bug
 ```
 
 Do not weaken production behavior to make a test pass. Fix the mock when the mock does not accurately reproduce the verified ChatGPT contract.
+
+## Speed budget
+
+The browser suite is intended to stay fast enough to run on every PR without becoming a development bottleneck.
+
+- CI runs the tests fully parallel with six workers.
+- The complete Playwright suite has a hard CI global budget of 40 seconds.
+- A healthy full run should normally stay around 30 seconds or below, leaving headroom for growth and one retry.
+- Traces are recorded on the first retry rather than for every successful test.
+- Prefer deterministic mock clocks/timing acceleration over real sleeps.
+- Do not reduce production safety delays merely to speed up tests.
+- A test that needs to validate the actual production timing contract should use `harness.loadCanonical()`; otherwise use proportionally shortened mock timing or a controlled clock while preserving the same ordering invariant.
 
 ## Commands
 
@@ -111,7 +127,7 @@ This permanently protects the `%` transport failure that broke the v3.18 bookmar
 
 ## CI diagnostics
 
-The permanent regression workflow runs `npm test` on pull requests and `main`. On browser-test failure Playwright keeps a trace and screenshot so the exact browser state can be inspected.
+The permanent regression workflow runs `npm test` on pull requests and `main`. On browser-test failure Playwright keeps a trace on the first retry and a screenshot on failure so the exact browser state can be inspected without paying trace overhead on every green test.
 
 The Mock ChatGPT event timeline is also available from:
 

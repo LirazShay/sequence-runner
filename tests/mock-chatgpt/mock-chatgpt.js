@@ -231,6 +231,13 @@
     const finishDelayMs = Number(response.finishDelayMs ?? 40);
     const chunkDelayMs = Number(response.chunkDelayMs ?? 25);
 
+    if (response.replaceActiveGeneration === true) {
+      resetGeneration();
+      record("generation-replaced-by-latest-turn", {
+        turnKey: turn.getAttribute("data-turn-key")
+      });
+    }
+
     if (showStop) {
       beginGeneration();
     }
@@ -333,6 +340,13 @@
 
     if (selected.type === "stopped-thinking") {
       runStoppedThinking(turn, selected);
+      return;
+    }
+
+    if (selected.type === "silent") {
+      record("assistant-silent", {
+        turnKey: turn.getAttribute("data-turn-key")
+      });
       return;
     }
 
