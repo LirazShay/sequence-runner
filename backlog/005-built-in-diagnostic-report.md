@@ -1,8 +1,16 @@
 # 005 — Built-in Diagnostic Report
 
-Status: Open
+Status: Done
 
 Priority: P1
+
+## Implementation result
+
+Implemented in Sequence Runner `v3.21` and merged through PR #13.
+
+The management panel now exposes a user-triggered diagnostic download action backed by the same `createDiagnosticSnapshot()` builder exposed through `__sequenceRunner`. The versioned JSON captures runner state, metrics, logs, current-cycle and pending/handoff state, page/browser context, turn inventory, selector/control/composer evidence, a deep current-turn DOM snapshot, full-page DOM, capture errors and deterministic diagnostic observations. Snapshot creation is non-mutating and intentionally excludes cookies, auth tokens, browser storage, credentials and arbitrary network bodies.
+
+Regression coverage verifies active-response capture, exact runner-version inclusion, non-mutating behavior, simulated Assistant-selector drift and panel JSON download. The full regression suite passed before merge.
 
 ## Goal
 
