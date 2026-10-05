@@ -1,0 +1,43 @@
+name: Apply Pending Continuation Hotfix
+
+on:
+  push:
+    branches:
+      - fix/pending-continue-external-turn
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, 'Apply pending continuation hotfix') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: fix/pending-continue-external-turn
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/apply-pending-continuation-hotfix.mjs
+      - run: npm run build:bookmarklet
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - name: Remove temporary applier
+        run: |
+          rm -f scripts/apply-pending-continuation-hotfix.mjs
+          rm -f .github/workflows/apply-pending-continuation-hotfix.yml
+      - name: Commit generated hotfix
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply pending continuation hotfix"
+          git push origin HEAD:fix/pending-continue-external-turn
