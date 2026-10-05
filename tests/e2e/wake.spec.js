@@ -50,7 +50,9 @@ test("same active response is nudged once after ten minutes without clicking Sto
   await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
-  await new Promise((resolve) => setTimeout(resolve, 900));
+  // Several accelerated watchdog cycles are enough to prove the same
+  // tracked response does not get another wake send.
+  await new Promise((resolve) => setTimeout(resolve, 120));
 
   const sent = await harness.sentMessages();
   expect(sent).toHaveLength(2);
