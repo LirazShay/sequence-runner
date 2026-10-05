@@ -43,7 +43,7 @@ It opens the door to:
 - Execution logs and diagnostics.
 - Future packaging as a small browser extension or userscript instead of a raw bookmarklet/script.
 
-The key product principle is that automatic runner traffic preserves one sent instruction per newly completed assistant turn. The only exception is an explicit user-triggered **Send now** action, which may supersede the currently tracked cycle and send another message while ChatGPT is still responding.
+The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Two deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, and the one-shot 10-minute long-running-response wake nudge.
 
 ## Technical design
 
@@ -91,7 +91,7 @@ START
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.
-- If the exact same tracked Assistant response remains actively generating for 10 minutes, the runner sends one `מה קורה?` wake nudge through the normal composer/send path, without clicking Stop or resending the original runner prompt. The nudge is one-shot per response and defers rather than overwriting occupied composer text.
+- If the exact same tracked Assistant response remains actively generating for 10 minutes, the runner immediately attempts one `מה קורה?` wake nudge through the same immediate composer/send path used by **Send now**, without clicking Stop or resending the original runner prompt. It does not wait for the active response to finish and does not require Send to be available before inserting the wake text; after insertion the immediate-send path waits briefly for Send to become available. The nudge is one-shot per response and defers only when the composer already contains user text, so that text is never overwritten.
 - The user can always stop manually by clicking the status badge.
 - Existing composer text is never overwritten automatically.
 - Text insertion is verified before Send is clicked.
