@@ -1,0 +1,89 @@
+from pathlib import Path
+import re
+
+path = Path('runner.js')
+text = path.read_text(encoding='utf-8')
+
+
+def replace_once(old, new, label):
+    global text
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'{label}: expected 1 match, found {count}')
+    text = text.replace(old, new, 1)
+
+
+replace_once('const VERSION = "3.19";', 'const VERSION = "3.20";', 'version')
+replace_once(
+    '        LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,\n        UI_REFRESH_MS: 1000,',
+    '        LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,\n        LONG_WAIT_WAKE_AFTER_MS: 10 * 60 * 1000,\n        LONG_WAIT_WAKE_MESSAGE: "מה קורה?",\n        UI_REFRESH_MS: 1000,',
+    'wake config'
+)
+
+pattern = re.compile(r'(?m)^(\s*)longWaitNoticeBucket: -1,$')
+
+def add_cycle_fields(match):
+    indent = match.group(1)
+    return '\n'.join([
+        f'{indent}longWaitNoticeBucket: -1,',
+        f'{indent}activeGenerationStartedAt: null,',
+        f'{indent}wakeState: "idle",',
+        f'{indent}wakeThresholdReachedAt: null,',
+        f'{indent}wakeDeferredReason: null,',
+        f'{indent}wakeSentAt: null,'
+    ])
+
+text, count = pattern.subn(add_cycle_fields, text)
+if count != 2:
+    raise SystemExit(f'cycle wake fields: expected 2 anchors, found {count}')
+
+replace_once(
+    '''    async function sendImmediateInjection(text) {\n        const message = normalizeText(text);\n\n        if (!message) {''',
+    '''    async function sendImmediateInjection(text, options) {\n        const message = normalizeText(text);\n        const opts = options || {};\n        const cycleLabel = opts.label || "injection";\n        const source = opts.source || "user";\n        const countAsInjection =\n            opts.countAsInjection !== false;\n        const sentStatusMessage =\n            opts.sentStatusMessage ||\n            "⚡ הודעת ביניים נשלחה מיד; עוקב אחר התגובה החדשה...";\n        const sentStatusColor =\n            opts.sentStatusColor || "#b45309";\n\n        if (!message) {''',
+    'immediate options'
+)
+replace_once(
+    '''                label: "injection",\n                prompt: message,''',
+    '''                label: cycleLabel,\n                prompt: message,''',
+    'immediate cycle label'
+)
+replace_once(
+    '''                label: "injection",\n                beforeTurnCount:\n                    beforeKeys.size,\n                immediate: true''',
+    '''                label: cycleLabel,\n                beforeTurnCount:\n                    beforeKeys.size,\n                immediate: true,\n                source''',
+    'immediate send log'
+)
+replace_once(
+    '''            sendButton.click();\n            injectionSentCount++;\n\n            setState(\n                "WAITING_FOR_TURN",\n                "⚡ הודעת ביניים נשלחה מיד; עוקב אחר התגובה החדשה...",\n                "#b45309"\n            );''',
+    '''            sendButton.click();\n\n            if (countAsInjection) {\n                injectionSentCount++;\n            }\n\n            setState(\n                "WAITING_FOR_TURN",\n                sentStatusMessage,\n                sentStatusColor\n            );''',
+    'immediate status/count'
+)
+
+marker = '    function completeCycle(cycle, text) {'
+wake_function = '''    function updateLongRunningWake(cycle, stopButton) {\n        const now = Date.now();\n\n        if (!stopButton) {\n            if (\n                cycle.activeGenerationStartedAt != null &&\n                cycle.wakeState !== "sent" &&\n                cycle.wakeState !== "sending"\n            ) {\n                if (cycle.wakeState === "deferred") {\n                    record("long-wait-wake-cancelled", {\n                        id: cycle.id,\n                        turnKey: cycle.turnKey,\n                        reason: "generation-ended-before-send"\n                    });\n                }\n\n                cycle.activeGenerationStartedAt = null;\n                cycle.wakeState = "idle";\n                cycle.wakeThresholdReachedAt = null;\n                cycle.wakeDeferredReason = null;\n            }\n\n            return false;\n        }\n\n        if (cycle.activeGenerationStartedAt == null) {\n            cycle.activeGenerationStartedAt = now;\n\n            record("generation-active-tracked", {\n                id: cycle.id,\n                turnKey: cycle.turnKey\n            });\n\n            return false;\n        }\n\n        const elapsedMs =\n            now - cycle.activeGenerationStartedAt;\n\n        if (\n            elapsedMs <\n            CONFIG.LONG_WAIT_WAKE_AFTER_MS\n        ) {\n            return false;\n        }\n\n        if (\n            cycle.wakeState === "sent" ||\n            cycle.wakeState === "sending" ||\n            cycle.wakeState === "failed"\n        ) {\n            return cycle.wakeState === "sending";\n        }\n\n        if (!cycle.wakeThresholdReachedAt) {\n            cycle.wakeThresholdReachedAt = now;\n\n            record("long-wait-wake-threshold", {\n                id: cycle.id,\n                turnKey: cycle.turnKey,\n                elapsedMs\n            });\n        }\n\n        let deferredReason = null;\n\n        if (getComposerText()) {\n            deferredReason = "composer-occupied";\n        } else {\n            const sendButton = getSendButton();\n\n            if (!sendButton || sendButton.disabled) {\n                deferredReason = "send-unavailable";\n            }\n        }\n\n        if (deferredReason) {\n            if (\n                cycle.wakeState !== "deferred" ||\n                cycle.wakeDeferredReason !== deferredReason\n            ) {\n                record("long-wait-wake-deferred", {\n                    id: cycle.id,\n                    turnKey: cycle.turnKey,\n                    reason: deferredReason,\n                    elapsedMs\n                });\n            }\n\n            cycle.wakeState = "deferred";\n            cycle.wakeDeferredReason = deferredReason;\n\n            setState(\n                "GENERATING",\n                deferredReason === "composer-occupied"\n                    ? "⏰ עברו 10 דקות; ממתין שתיבת ההודעה תתפנה לפני שליחת ‘מה קורה?’."\n                    : "⏰ עברו 10 דקות; ממתין שכפתור השליחה יהיה זמין לפני שליחת ‘מה קורה?’." ,\n                "#b45309"\n            );\n\n            return true;\n        }\n\n        cycle.wakeState = "sending";\n        cycle.wakeDeferredReason = null;\n\n        record("long-wait-wake-sending", {\n            id: cycle.id,\n            turnKey: cycle.turnKey,\n            elapsedMs\n        });\n\n        sendImmediateInjection(\n            CONFIG.LONG_WAIT_WAKE_MESSAGE,\n            {\n                label: "wake",\n                source: "long-wait-wake",\n                countAsInjection: false,\n                sentStatusMessage:\n                    "⏰ נשלח ‘מה קורה?’ אחרי 10 דקות של אותה תשובה; עוקב אחר התגובה החדשה...",\n                sentStatusColor: "#b45309"\n            }\n        ).then(function () {\n            cycle.wakeState = "sent";\n            cycle.wakeSentAt = Date.now();\n\n            record("long-wait-wake-sent", {\n                id: cycle.id,\n                turnKey: cycle.turnKey,\n                elapsedMs\n            });\n        }).catch(function (err) {\n            cycle.wakeState = "failed";\n\n            record("long-wait-wake-failed", {\n                id: cycle.id,\n                turnKey: cycle.turnKey,\n                elapsedMs,\n                error: err?.message || String(err || "")\n            });\n\n            if (!stopped && currentCycle === cycle) {\n                setState(\n                    "GENERATING",\n                    "⚠️ לא ניתן היה לשלוח את הודעת ההתעוררות בבטחה; ממשיך להמתין לתגובה.",\n                    "#b45309"\n                );\n            }\n        });\n\n        return true;\n    }\n\n'''
+if text.count(marker) != 1:
+    raise SystemExit('completeCycle marker not unique')
+text = text.replace(marker, wake_function + marker, 1)
+
+replace_once(
+    '''        const finalUiSeen =\n            hasFinalUi(turn);\n\n        const text =''',
+    '''        if (\n            updateLongRunningWake(\n                cycle,\n                !!stopButton\n            )\n        ) {\n            return;\n        }\n\n        const finalUiSeen =\n            hasFinalUi(turn);\n\n        const text =''',
+    'evaluate wake hook'
+)
+
+path.write_text(text, encoding='utf-8')
+
+agents = Path('AGENTS.md')
+agents_text = agents.read_text(encoding='utf-8')
+old = '''After a long wait, status/diagnostic notices are allowed, but they must not terminate the run.\n\nDo not implement automatic resend loops. Manual stop remains the safe escape hatch if a run is genuinely stuck.'''
+new = '''After a long wait, status/diagnostic notices are allowed, but they must not terminate the run.\n\nThe one explicit automatic long-wait exception is a one-shot wake nudge for the same continuously active tracked Assistant response: after 10 minutes of active generation, send `מה קורה?` once through the existing immediate composer/send path. Never click Stop, never resend the interrupted runner prompt, never overwrite user composer text, and never send the nudge more than once for the same tracked response. If the composer or Send control is not safe, defer the nudge while that same response remains active. Eligibility resets for the next tracked Assistant response.\n\nDo not implement automatic resend loops. Manual stop remains the safe escape hatch if a run is genuinely stuck.'''
+if agents_text.count(old) != 1:
+    raise SystemExit('AGENTS long-wait rule patch point not found')
+agents.write_text(agents_text.replace(old, new, 1), encoding='utf-8')
+
+readme = Path('README.md')
+readme_text = readme.read_text(encoding='utf-8')
+old = '''- Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.\n- After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.\n- The user can always stop manually by clicking the status badge.'''
+new = '''- Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.\n- After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.\n- If the exact same tracked Assistant response remains actively generating for 10 minutes, the runner sends one `מה קורה?` wake nudge through the normal composer/send path, without clicking Stop or resending the original runner prompt. The nudge is one-shot per response and defers rather than overwriting occupied composer text.\n- The user can always stop manually by clicking the status badge.'''
+if readme_text.count(old) != 1:
+    raise SystemExit('README long-wait patch point not found')
+readme.write_text(readme_text.replace(old, new, 1), encoding='utf-8')
