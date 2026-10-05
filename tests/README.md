@@ -26,7 +26,7 @@ Do not weaken production behavior to make a test pass. Fix the mock when the moc
 
 The browser suite is intended to stay fast enough to run on every PR without becoming a development bottleneck.
 
-- CI runs the tests fully parallel with four workers.
+- CI runs the tests fully parallel with six workers.
 - The complete Playwright suite has a hard CI global budget of 30 seconds.
 - Prefer deterministic mock clocks/timing acceleration over real sleeps.
 - Do not reduce production safety delays merely to speed up tests.
