@@ -25,7 +25,7 @@ Each backlog item lives in its own Markdown document so the task can be discusse
 | --- | --- | --- | --- | --- |
 | 001 | [Version E2E Regression Suite](001-version-e2e-regression-suite.md) | Deterministic Mock ChatGPT + Playwright regression suite now validates the real runner, bookmarklet artifact, handoff, recovery and known failure modes in CI. | P0 | Done |
 | 004 | [Wake Long-Running Response](004-wake-long-running-response.md) | `v3.20` sends one safe `מה קורה?` nudge after 10 minutes of continuous generation for the same response, without Stop, overwrite, or duplicate continuation. | P1 | Done |
-| 005 | [Built-in Diagnostic Report](005-built-in-diagnostic-report.md) | Add an in-runner “Report Problem” action that downloads a versioned state + DOM snapshot for AI/developer debugging without requiring DevTools. | P1 | Open |
+| 005 | [Built-in Diagnostic Report](005-built-in-diagnostic-report.md) | `v3.21` adds a non-mutating in-runner diagnostic snapshot/download with versioned runner state, DOM/selector evidence, privacy boundaries and regression coverage. | P1 | Done |
 | 002 | [Rename Previous Chat on Handoff](002-rename-previous-chat-on-handoff.md) | Investigate and implement safe renaming of the outgoing chat during automatic handoff, with a deterministic naming and failure policy. | P2 | Open |
 | 003 | [Split Runner into Modules](003-split-runner-into-modules.md) | Refactor the growing `runner.js` into a few cohesive modules while preserving observable behavior and simple deterministic distribution. | P2 | Open |
 
