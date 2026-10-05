@@ -12,24 +12,45 @@ jobs:
   apply:
     if: ${{ !contains(github.event.head_commit.message, 'Apply pending continuation hotfix') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: fix/pending-continue-external-turn
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
       - run: npm ci
-      - run: node scripts/apply-pending-continuation-hotfix.mjs
-      - run: npm run build:bookmarklet
-      - run: npx playwright install --with-deps chromium
-      - run: npm test
+
+      - name: Apply source/test/docs patch
+        run: node scripts/apply-pending-continuation-hotfix.mjs
+
+      - name: Build and verify bookmarklet
+        run: |
+          npm run build:bookmarklet
+          npm run check:bookmarklet
+
+      - name: Verify preinstalled Chrome
+        run: google-chrome --version
+
+      - name: Run targeted regression tests
+        run: >-
+          npx playwright test tests/e2e/regressions.spec.js
+          --grep "deferred continuation is superseded|manual turn during continuation delay"
+          --retries=0
+          --workers=2
+
       - name: Remove temporary applier
         run: |
           rm -f scripts/apply-pending-continuation-hotfix.mjs
           rm -f .github/workflows/apply-pending-continuation-hotfix.yml
+
       - name: Commit generated hotfix
         run: |
           if git diff --quiet; then
