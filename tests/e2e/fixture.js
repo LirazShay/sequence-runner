@@ -24,6 +24,32 @@ const assets = new Map([
 const mockHtml = fs.readFileSync(path.join(mockRoot, "index.html"));
 const runnerPath = path.join(repoRoot, "runner.js");
 const bookmarkletPath = path.join(repoRoot, "runner.min.js");
+const canonicalRunnerSource = fs.readFileSync(runnerPath, "utf8");
+
+function replaceSingleTiming(source, from, to) {
+  const matches = source.split(from).length - 1;
+  if (matches !== 1) {
+    throw new Error(`Expected exactly one timing literal ${from}, found ${matches}`);
+  }
+  return source.replace(from, to);
+}
+
+function buildFastTestRunnerSource() {
+  let source = canonicalRunnerSource;
+
+  // The E2E lab is deterministic, so production wall-clock guards can be
+  // shortened without changing runner decisions or DOM behavior under test.
+  source = replaceSingleTiming(source, "HANDOFF_MIN_READY_MS: 1000", "HANDOFF_MIN_READY_MS: 80");
+  source = replaceSingleTiming(source, "STABLE_MS: 900", "STABLE_MS: 220");
+  source = replaceSingleTiming(source, "FAST_RESPONSE_FALLBACK_MS: 2500", "FAST_RESPONSE_FALLBACK_MS: 450");
+  source = replaceSingleTiming(source, "UI_REFRESH_MS: 1000", "UI_REFRESH_MS: 100");
+  source = replaceSingleTiming(source, "WATCHDOG_MS: 400", "WATCHDOG_MS: 50");
+  source = replaceSingleTiming(source, "CONTINUE_DELAY_MS: 350", "CONTINUE_DELAY_MS: 40");
+
+  return source;
+}
+
+const fastTestRunnerSource = buildFastTestRunnerSource();
 
 async function installMockRouting(page) {
   await page.route("http://mock.local/**", async (route) => {
@@ -59,7 +85,7 @@ export const test = base.extend({
       async load(url = "http://mock.local/c/start") {
         await page.goto(url);
         await page.waitForFunction(() => !!window.__mockChatGPT);
-        await page.addScriptTag({ path: runnerPath });
+        await page.addScriptTag({ content: fastTestRunnerSource });
         await page.waitForFunction(() => !!window.__sequenceRunner);
         await expect.poll(
           () => page.evaluate(() => window.__sequenceRunner.getState().state)
@@ -92,7 +118,7 @@ export const test = base.extend({
         return page.evaluate(() => window.__sequenceRunner.getState());
       },
 
-      async waitForState(expectedState, timeout = 7000) {
+      async waitForState(expectedState, timeout = 3500) {
         await expect.poll(
           () => page.evaluate(() => window.__sequenceRunner.getState().state),
           { timeout }
@@ -103,7 +129,7 @@ export const test = base.extend({
         return page.evaluate(() => window.__mockChatGPT.getSentMessages());
       },
 
-      async waitForSentCount(count, timeout = 7000) {
+      async waitForSentCount(count, timeout = 3500) {
         await expect.poll(
           () => page.evaluate(() => window.__mockChatGPT.getSentMessages().length),
           { timeout }
