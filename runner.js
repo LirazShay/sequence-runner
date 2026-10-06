@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.29";
+    const VERSION = "3.30";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -928,16 +928,6 @@
             return null;
         }
 
-        const primary = [
-            ...turn.querySelectorAll(
-                SELECTORS.assistantMessage
-            )
-        ].at(-1);
-
-        if (primary) {
-            return primary;
-        }
-
         const assistantUnit = [
             ...turn.querySelectorAll(
                 '[data-content-search-unit-key$=":assistant"],' +
@@ -953,15 +943,6 @@
 
             if (selectionMessage) {
                 return selectionMessage;
-            }
-
-            const nestedMarkdown =
-                assistantUnit.querySelector(
-                    '[data-markdown-text-style="assistant-message"]'
-                );
-
-            if (nestedMarkdown) {
-                return nestedMarkdown;
             }
         }
 
@@ -983,6 +964,30 @@
             if (roleSelection) {
                 return roleSelection;
             }
+        }
+
+        const primary = [
+            ...turn.querySelectorAll(
+                SELECTORS.assistantMessage
+            )
+        ].at(-1);
+
+        if (primary) {
+            return primary;
+        }
+
+        if (assistantUnit) {
+            const nestedMarkdown = [
+                ...assistantUnit.querySelectorAll(
+                    '[data-markdown-text-style="assistant-message"]'
+                )
+            ].at(-1);
+
+            if (nestedMarkdown) {
+                return nestedMarkdown;
+            }
+
+            return assistantUnit;
         }
 
         return null;

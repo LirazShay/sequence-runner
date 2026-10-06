@@ -240,7 +240,7 @@ Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is alre
 
 If the tracked turn explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. Treat generation as terminated. If a queued intermediate message is already due, it may safely supersede that terminated cycle; otherwise stop with a clear diagnosable error.
 
-Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper.
+Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper. When a selection-message container is available, treat it as the authoritative full Assistant response before considering individual Markdown fragments; a later auxiliary Markdown fragment must never hide an earlier handoff block from evaluation.
 
 Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace DOM nodes.
 
