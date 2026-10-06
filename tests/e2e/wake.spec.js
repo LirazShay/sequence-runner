@@ -1,5 +1,8 @@
 import { test, expect } from "./fixture.js";
 
+const DEFAULT_WAKE_MESSAGE =
+  "לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.";
+
 async function installWakeClock(harness) {
   await harness.page.evaluate(() => {
     const realDateNow = Date.now.bind(Date);
@@ -24,7 +27,65 @@ async function waitForTrackedGeneration(harness) {
   ).toBeTruthy();
 }
 
-test("response that completes before ten minutes is never nudged", async ({ harness }) => {
+test("start panel exposes configurable wake defaults and presets", async ({ harness }) => {
+  await harness.load();
+
+  const config = await harness.page.evaluate(() => {
+    const delay = document.querySelector('[data-input="wake-after-minutes"]');
+    const preset = document.querySelector('[data-input="wake-message-preset"]');
+    const message = document.querySelector('[data-input="wake-message"]');
+
+    return {
+      delay: delay?.value || null,
+      delayOptions: delay ? [...delay.options].map((option) => option.value) : [],
+      preset: preset?.value || null,
+      presetOptions: preset ? [...preset.options].map((option) => option.value) : [],
+      message: message?.value || null
+    };
+  });
+
+  expect(config.delay).toBe("5");
+  expect(config.delayOptions).toEqual(
+    Array.from({ length: 20 }, (_, index) => String(index + 1))
+  );
+  expect(config.preset).toBe("supportive");
+  expect(config.presetOptions).toEqual(["supportive", "short", "custom"]);
+  expect(config.message).toBe(DEFAULT_WAKE_MESSAGE);
+
+  await harness.page.selectOption('[data-input="wake-message-preset"]', "short");
+  await expect(harness.page.locator('[data-input="wake-message"]')).toHaveValue("מה קורה?");
+
+  await harness.page.selectOption('[data-input="wake-message-preset"]', "supportive");
+  await expect(harness.page.locator('[data-input="wake-message"]')).toHaveValue(DEFAULT_WAKE_MESSAGE);
+});
+
+test("edited wake delay and message are used for the active response", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "2");
+  await harness.page.locator('[data-input="wake-message"]').fill("בדיקת התקדמות מותאמת");
+  await expect(harness.page.locator('[data-input="wake-message-preset"]')).toHaveValue("custom");
+  await harness.page.click('[data-action="start-run"]');
+  await waitForTrackedGeneration(harness);
+
+  await advanceWakeClock(harness, 2 * 60 * 1000 + 1000);
+  await harness.waitForSentCount(2);
+
+  const sent = await harness.sentMessages();
+  expect(sent[1]).toBe("בדיקת התקדמות מותאמת");
+
+  const state = await harness.page.evaluate(() => window.__sequenceRunner.getState());
+  expect(state.longWaitWake).toEqual({
+    afterMinutes: 2,
+    message: "בדיקת התקדמות מותאמת"
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
+
+test("response that completes before five minutes is never nudged", async ({ harness }) => {
   await harness.load();
   await installWakeClock(harness);
   await harness.setScenario({
@@ -39,7 +100,7 @@ test("response that completes before ten minutes is never nudged", async ({ harn
   expect(log.some((entry) => entry.event === "long-wait-wake-sent")).toBeFalsy();
 });
 
-test("same active response is nudged once after ten minutes without clicking Stop", async ({ harness }) => {
+test("same active response is nudged once after five minutes without clicking Stop", async ({ harness }) => {
   await harness.load();
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
@@ -47,16 +108,14 @@ test("same active response is nudged once after ten minutes without clicking Sto
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await waitForTrackedGeneration(harness);
 
-  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
-  // Several accelerated watchdog cycles are enough to prove the same
-  // tracked response does not get another wake send.
   await new Promise((resolve) => setTimeout(resolve, 120));
 
   const sent = await harness.sentMessages();
   expect(sent).toHaveLength(2);
-  expect(sent[1]).toBe("מה קורה?");
+  expect(sent[1]).toBe(DEFAULT_WAKE_MESSAGE);
   expect(sent).not.toContain("תמשיך לשלב הבא");
 
   const events = await harness.events();
@@ -95,11 +154,11 @@ test("wake inserts text before requiring Send while generation is active", async
     });
   });
 
-  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
   const sent = await harness.sentMessages();
-  expect(sent[1]).toBe("מה קורה?");
+  expect(sent[1]).toBe(DEFAULT_WAKE_MESSAGE);
 
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
   expect(log.some(
@@ -121,7 +180,7 @@ test("wake eligibility resets for the next tracked Assistant response", async ({
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await waitForTrackedGeneration(harness);
 
-  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
   await expect.poll(
@@ -129,11 +188,11 @@ test("wake eligibility resets for the next tracked Assistant response", async ({
   ).toBe(2);
   await waitForTrackedGeneration(harness);
 
-  await advanceWakeClock(harness, 20 * 60 * 1000 + 2000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 2000);
   await harness.waitForSentCount(3);
 
   const sent = await harness.sentMessages();
-  expect(sent.slice(1)).toEqual(["מה קורה?", "מה קורה?"]);
+  expect(sent.slice(1)).toEqual([DEFAULT_WAKE_MESSAGE, DEFAULT_WAKE_MESSAGE]);
 
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
   expect(log.filter((entry) => entry.event === "long-wait-wake-sent")).toHaveLength(2);
@@ -150,7 +209,7 @@ test("occupied composer defers the wake without overwriting user text", async ({
   await waitForTrackedGeneration(harness);
 
   await harness.page.evaluate(() => window.__mockChatGPT.setComposerText("USER_DRAFT"));
-  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
 
   await expect.poll(
     () => harness.page.evaluate(() => window.__sequenceRunner.getLog().some(
@@ -166,7 +225,7 @@ test("occupied composer defers the wake without overwriting user text", async ({
   await harness.waitForSentCount(2);
 
   const sent = await harness.sentMessages();
-  expect(sent[1]).toBe("מה קורה?");
+  expect(sent[1]).toBe(DEFAULT_WAKE_MESSAGE);
 
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });

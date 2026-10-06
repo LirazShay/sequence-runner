@@ -77,6 +77,7 @@ tests/
     intermediate.spec.js
     recovery.spec.js
     regressions.spec.js
+    wake.spec.js
 ```
 
 ## Mock ChatGPT

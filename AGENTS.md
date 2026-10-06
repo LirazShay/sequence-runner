@@ -120,7 +120,7 @@ Core invariant:
 
 > Normal automatic runner sends must preserve one sent prompt per newly completed assistant turn.
 
-There are two deliberate send-while-generating exceptions, and neither may click Stop: an explicit user-triggered immediate intermediate message, and the one-shot 10-minute long-running-response wake nudge. Both use the immediate composer/send path and safely supersede the currently tracked cycle when they send.
+There are two deliberate send-while-generating exceptions, and neither may click Stop: an explicit user-triggered immediate intermediate message, and the one-shot configurable long-running-response wake nudge. The wake delay is a per-run setting from 1–20 minutes (default 5), and the wake message is selected/editable per run. Both exceptions use the immediate composer/send path and safely supersede the currently tracked cycle when they send.
 
 Do not replace the normal workflow with timer-based logic such as "if ChatGPT looks idle, send again".
 
@@ -254,7 +254,7 @@ Responses may legitimately take many minutes. The runner should continue waiting
 
 After a long wait, status/diagnostic notices are allowed, but they must not terminate the run.
 
-The one explicit automatic long-wait exception is a one-shot wake nudge for the same continuously active tracked Assistant response: after 10 minutes of active generation, immediately attempt to send `מה קורה?` once through the existing immediate composer/send path. Never wait for the active response to finish, never preflight on Send availability before inserting the wake text, never click Stop, never resend the interrupted runner prompt, never overwrite user composer text, and never send the nudge more than once for the same tracked response. If the composer already contains user text, defer only to preserve that draft; otherwise insert the wake text immediately and let the immediate-send path wait briefly for Send to become available after insertion. Eligibility resets for the next tracked Assistant response.
+The one explicit automatic long-wait exception is a one-shot wake nudge for the same continuously active tracked Assistant response. Its per-run delay must stay within 1–20 minutes and defaults to 5. Its default message is `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`, with `מה קורה?` available as a preset and arbitrary non-empty custom text allowed. When the configured delay elapses, immediately attempt to send the configured wake message once through the existing immediate composer/send path. Never wait for the active response to finish, never preflight on Send availability before inserting the wake text, never click Stop, never resend the interrupted runner prompt, never overwrite user composer text, and never send the nudge more than once for the same tracked response. If the composer already contains user text, defer only to preserve that draft; otherwise insert the wake text immediately and let the immediate-send path wait briefly for Send to become available after insertion. Eligibility resets for the next tracked Assistant response.
 
 Do not implement automatic resend loops. Manual stop remains the safe escape hatch if a run is genuinely stuck.
 

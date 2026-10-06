@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.30";
+    const VERSION = "3.31";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -20,8 +20,11 @@
         FAST_RESPONSE_FALLBACK_MS: 2500,
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
-        LONG_WAIT_WAKE_AFTER_MS: 10 * 60 * 1000,
-        LONG_WAIT_WAKE_MESSAGE: "מה קורה?",
+        LONG_WAIT_WAKE_MIN_MINUTES: 1,
+        LONG_WAIT_WAKE_MAX_MINUTES: 20,
+        LONG_WAIT_WAKE_DEFAULT_MINUTES: 5,
+        LONG_WAIT_WAKE_DEFAULT_MESSAGE: "לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.",
+        LONG_WAIT_WAKE_SHORT_MESSAGE: "מה קורה?",
         UI_REFRESH_MS: 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
@@ -137,6 +140,49 @@
         '<textarea data-input="task-text" rows="4" placeholder="כתוב כאן את המשימה..." style="display:none;width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px"></textarea>',
         '<button type="button" data-action="start-run" style="width:100%;border:0;background:#15803d;color:#fff;border-radius:6px;padding:7px;cursor:pointer;font-weight:700">התחל ריצה</button>',
         '<div style="margin-top:6px;font-size:11px;color:#94a3b8">Steady ו־Deep עובדים במקטעים לפי מטרות ותוצאות; Deep דוחף למקטעים גדולים יותר. Autonomous מקבל החלטות סבירות וממשיך, Collaborative עוצר בהחלטות מהותיות. במצב “משימה חדשה” הטקסט משתלב בתוך הודעת הפתיחה.</div>',
+        '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
+        '<div style="font-weight:700;margin-bottom:7px">בדיקת תשובה ארוכה</div>',
+        '<div style="font-size:11px;color:#cbd5e1;margin-bottom:4px">שלח הודעת בדיקה אחרי:</div>',
+        '<select data-input="wake-after-minutes" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">' +
+            Array.from(
+                {
+                    length:
+                        CONFIG.LONG_WAIT_WAKE_MAX_MINUTES -
+                        CONFIG.LONG_WAIT_WAKE_MIN_MINUTES +
+                        1
+                },
+                function (_, index) {
+                    const minutes =
+                        CONFIG.LONG_WAIT_WAKE_MIN_MINUTES +
+                        index;
+
+                    return (
+                        '<option value="' +
+                        minutes +
+                        '"' +
+                        (minutes ===
+                        CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES
+                            ? ' selected'
+                            : '') +
+                        '>' +
+                        minutes +
+                        (minutes === 1
+                            ? ' דקה'
+                            : ' דקות') +
+                        '</option>'
+                    );
+                }
+            ).join('') +
+            '</select>',
+        '<div style="font-size:11px;color:#cbd5e1;margin-bottom:4px">הודעת בדיקה:</div>',
+        '<select data-input="wake-message-preset" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
+        '<option value="supportive">' + escapeHtml(CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE) + '</option>',
+        '<option value="short">' + escapeHtml(CONFIG.LONG_WAIT_WAKE_SHORT_MESSAGE) + '</option>',
+        '<option value="custom">מותאם אישית</option>',
+        '</select>',
+        '<textarea data-input="wake-message" rows="3" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px">' + escapeHtml(CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE) + '</textarea>',
+        '<div style="font-size:10px;color:#94a3b8">ההודעה נשלחת לכל היותר פעם אחת לכל תשובה פעילה, בלי ללחוץ Stop ובלי לדרוס טקסט שכבר הוקלד.</div>',
+        '</div>',
         '</div>',
         '<div data-role="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px"></div>',
         '<button type="button" data-action="restart-run" style="display:none;width:100%;border:0;background:#0f766e;color:#fff;border-radius:6px;padding:8px;cursor:pointer;font-weight:700;margin-bottom:10px">התחל ריצה חדשה</button>',
@@ -234,6 +280,10 @@
     let selectedSkipFirstMessage = false;
     let selectedWorkStyle = "steady";
     let selectedDecisionMode = "autonomous";
+    let selectedWakeAfterMinutes =
+        CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES;
+    let selectedWakeMessage =
+        CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
     let runnerStartedAt = null;
     let injectionSeq = 0;
     let injectionSentCount = 0;
@@ -321,6 +371,70 @@
         return value === "collaborative"
             ? "collaborative"
             : "autonomous";
+    }
+
+    function normalizeWakeAfterMinutes(value) {
+        if (value == null || value === "") {
+            return CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES;
+        }
+
+        const parsed = Number(value);
+
+        if (
+            !Number.isInteger(parsed) ||
+            parsed < CONFIG.LONG_WAIT_WAKE_MIN_MINUTES ||
+            parsed > CONFIG.LONG_WAIT_WAKE_MAX_MINUTES
+        ) {
+            throw new Error(
+                "Long-wait wake delay must be an integer from " +
+                    CONFIG.LONG_WAIT_WAKE_MIN_MINUTES +
+                    " to " +
+                    CONFIG.LONG_WAIT_WAKE_MAX_MINUTES +
+                    " minutes."
+            );
+        }
+
+        return parsed;
+    }
+
+    function normalizeWakeMessage(value) {
+        if (value == null) {
+            return CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
+        }
+
+        const message = normalizeText(value);
+
+        if (!message) {
+            throw new Error(
+                "Long-wait wake message cannot be empty."
+            );
+        }
+
+        return message;
+    }
+
+    function getWakeMessagePreset(value) {
+        const message = normalizeText(value);
+
+        if (
+            message ===
+            normalizeText(
+                CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE
+            )
+        ) {
+            return "supportive";
+        }
+
+        if (
+            message ===
+            normalizeText(
+                CONFIG.LONG_WAIT_WAKE_SHORT_MESSAGE
+            )
+        ) {
+            return "short";
+        }
+
+        return "custom";
     }
 
     function isDone(text) {
@@ -1131,6 +1245,12 @@
         }
 
         return minutes + ":" + String(seconds).padStart(2, "0");
+    }
+
+    function formatWakeDelay(minutes) {
+        return minutes === 1
+            ? "דקה"
+            : minutes + " דקות";
     }
 
     function getChatMetrics() {
@@ -2381,6 +2501,12 @@
                     selectedSkipFirstMessage,
                 workStyle: selectedWorkStyle,
                 decisionMode: selectedDecisionMode,
+                longWaitWake: {
+                    afterMinutes:
+                        selectedWakeAfterMinutes,
+                    message:
+                        selectedWakeMessage
+                },
                 currentCycle: diagnosticCycleSnapshot(currentCycle),
                 completedResponseCount,
                 continuationCount,
@@ -2539,6 +2665,57 @@
             '[data-input="decision-mode"]'
         );
 
+        const wakeAfterMinutesSelect = panel.querySelector(
+            '[data-input="wake-after-minutes"]'
+        );
+
+        const wakeMessagePresetSelect = panel.querySelector(
+            '[data-input="wake-message-preset"]'
+        );
+
+        const wakeMessageArea = panel.querySelector(
+            '[data-input="wake-message"]'
+        );
+
+        const syncWakePresetFromMessage = function () {
+            if (!wakeMessagePresetSelect) {
+                return;
+            }
+
+            wakeMessagePresetSelect.value =
+                getWakeMessagePreset(
+                    wakeMessageArea?.value || ""
+                );
+        };
+
+        wakeMessagePresetSelect?.addEventListener(
+            "change",
+            function () {
+                if (!wakeMessageArea) {
+                    return;
+                }
+
+                if (
+                    wakeMessagePresetSelect.value ===
+                    "supportive"
+                ) {
+                    wakeMessageArea.value =
+                        CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
+                } else if (
+                    wakeMessagePresetSelect.value ===
+                    "short"
+                ) {
+                    wakeMessageArea.value =
+                        CONFIG.LONG_WAIT_WAKE_SHORT_MESSAGE;
+                }
+            }
+        );
+
+        wakeMessageArea?.addEventListener(
+            "input",
+            syncWakePresetFromMessage
+        );
+
         const syncStartModeControls = function () {
             const isNewTask =
                 taskModeSelect?.value === "new";
@@ -2571,7 +2748,9 @@
                     taskTextArea?.value || "",
                     workStyleSelect?.value || "steady",
                     decisionModeSelect?.value || "autonomous",
-                    startMode === "existing-ready"
+                    startMode === "existing-ready",
+                    wakeAfterMinutesSelect?.value,
+                    wakeMessageArea?.value
                 ).catch(function (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -3348,6 +3527,18 @@
             '[data-input="decision-mode"]'
         );
 
+        const wakeAfterMinutes = panel.querySelector(
+            '[data-input="wake-after-minutes"]'
+        );
+
+        const wakeMessagePreset = panel.querySelector(
+            '[data-input="wake-message-preset"]'
+        );
+
+        const wakeMessage = panel.querySelector(
+            '[data-input="wake-message"]'
+        );
+
         const inputs = [
             '[data-input="injection-text"]',
             '[data-input="injection-after"]',
@@ -3365,6 +3556,21 @@
 
         if (decisionMode) {
             decisionMode.value = "autonomous";
+        }
+
+        if (wakeAfterMinutes) {
+            wakeAfterMinutes.value = String(
+                CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES
+            );
+        }
+
+        if (wakeMessagePreset) {
+            wakeMessagePreset.value = "supportive";
+        }
+
+        if (wakeMessage) {
+            wakeMessage.value =
+                CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
         }
 
         if (taskText) {
@@ -3416,6 +3622,10 @@
         selectedSkipFirstMessage = false;
         selectedWorkStyle = "steady";
         selectedDecisionMode = "autonomous";
+        selectedWakeAfterMinutes =
+            CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES;
+        selectedWakeMessage =
+            CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
         runnerStartedAt = null;
         injectionSeq = 0;
         injectionSentCount = 0;
@@ -4293,7 +4503,7 @@
 
         if (
             elapsedMs <
-            CONFIG.LONG_WAIT_WAKE_AFTER_MS
+            selectedWakeAfterMinutes * 60 * 1000
         ) {
             return false;
         }
@@ -4312,7 +4522,11 @@
             record("long-wait-wake-threshold", {
                 id: cycle.id,
                 turnKey: cycle.turnKey,
-                elapsedMs
+                elapsedMs,
+                afterMinutes:
+                    selectedWakeAfterMinutes,
+                message:
+                    selectedWakeMessage
             });
         }
 
@@ -4339,7 +4553,11 @@
 
             setState(
                 "GENERATING",
-                "⏰ עברו 10 דקות; יש טקסט בתיבת ההודעה ולכן ממתין רק כדי לא לדרוס אותו לפני שליחת ‘מה קורה?’.",
+                "⏰ עבר זמן הבדיקה שהוגדר (" +
+                    formatWakeDelay(
+                        selectedWakeAfterMinutes
+                    ) +
+                    "); יש טקסט בתיבת ההודעה ולכן ממתין רק כדי לא לדרוס אותו.",
                 "#b45309"
             );
 
@@ -4356,13 +4574,17 @@
         });
 
         sendImmediateInjection(
-            CONFIG.LONG_WAIT_WAKE_MESSAGE,
+            selectedWakeMessage,
             {
                 label: "wake",
                 source: "long-wait-wake",
                 countAsInjection: false,
                 sentStatusMessage:
-                    "⏰ נשלח ‘מה קורה?’ אחרי 10 דקות של אותה תשובה; עוקב אחר התגובה החדשה...",
+                    "⏰ נשלחה הודעת בדיקה אחרי " +
+                    formatWakeDelay(
+                        selectedWakeAfterMinutes
+                    ) +
+                    "; עוקב אחר התגובה החדשה...",
                 sentStatusColor: "#b45309"
             }
         ).then(function () {
@@ -4866,7 +5088,9 @@
         taskText,
         workStyle,
         decisionMode,
-        skipFirstMessage
+        skipFirstMessage,
+        wakeAfterMinutes,
+        wakeMessage
     ) {
         if (stopped) {
             throw new Error(
@@ -4885,6 +5109,16 @@
 
         const decisions =
             normalizeDecisionMode(decisionMode);
+
+        const normalizedWakeAfterMinutes =
+            normalizeWakeAfterMinutes(
+                wakeAfterMinutes
+            );
+
+        const normalizedWakeMessage =
+            normalizeWakeMessage(
+                wakeMessage
+            );
 
         const shouldSkipFirstMessage =
             mode !== "new" &&
@@ -4913,6 +5147,10 @@
 
         selectedWorkStyle = style;
         selectedDecisionMode = decisions;
+        selectedWakeAfterMinutes =
+            normalizedWakeAfterMinutes;
+        selectedWakeMessage =
+            normalizedWakeMessage;
 
         runStarted = true;
         runnerStartedAt = Date.now();
@@ -4923,6 +5161,10 @@
                 selectedSkipFirstMessage,
             workStyle: selectedWorkStyle,
             decisionMode: selectedDecisionMode,
+            wakeAfterMinutes:
+                selectedWakeAfterMinutes,
+            wakeMessage:
+                selectedWakeMessage,
             hasTaskText:
                 !!selectedTaskText
         });
@@ -5042,6 +5284,12 @@
                     selectedSkipFirstMessage,
                 workStyle: selectedWorkStyle,
                 decisionMode: selectedDecisionMode,
+                longWaitWake: {
+                    afterMinutes:
+                        selectedWakeAfterMinutes,
+                    message:
+                        selectedWakeMessage
+                },
                 queuedIntermediateMessages:
                     injectionQueue.length,
                 injectionSentCount,
@@ -5138,26 +5386,35 @@
         startExistingContext: function (
             workStyle,
             decisionMode,
-            skipFirstMessage
+            skipFirstMessage,
+            wakeAfterMinutes,
+            wakeMessage
         ) {
             return beginRun(
                 "existing",
                 "",
                 workStyle,
                 decisionMode,
-                skipFirstMessage
+                skipFirstMessage,
+                wakeAfterMinutes,
+                wakeMessage
             );
         },
         startWithTask: function (
             taskText,
             workStyle,
-            decisionMode
+            decisionMode,
+            wakeAfterMinutes,
+            wakeMessage
         ) {
             return beginRun(
                 "new",
                 taskText,
                 workStyle,
-                decisionMode
+                decisionMode,
+                false,
+                wakeAfterMinutes,
+                wakeMessage
             );
         },
         sendMessageImmediately:
