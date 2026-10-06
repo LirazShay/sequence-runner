@@ -36,7 +36,7 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
-      - name: Repair temporary patcher escaping
+      - name: Repair temporary patcher assertion syntax
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -46,17 +46,25 @@ jobs:
           new = 'expect(prompt, "missing semantic topic: " + topic).toContain(topic);'
           if old not in text:
               raise SystemExit('Expected temporary patcher assertion not found')
-          text = text.replace(old, new)
-          join_old = '].join("\\n");'
-          join_new = '].join("\\\\n");'
-          if text.count(join_old) < 3:
-              raise SystemExit('Expected generated join escaping sites not found')
-          text = text.replace(join_old, join_new)
-          path.write_text(text)
+          path.write_text(text.replace(old, new))
           PY
 
       - name: Apply compact contract
         run: node scripts/apply-compact-opening-contract.mjs
+
+      - name: Repair generated newline literals
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('runner.js')
+          text = path.read_text()
+          bad = '].join("\n");'
+          good = '].join("\\n");'
+          count = text.count(bad)
+          if count < 3:
+              raise SystemExit(f'Expected malformed generated joins, found {count}')
+          path.write_text(text.replace(bad, good))
+          PY
 
       - name: Rebuild bookmarklet
         run: npm run build:bookmarklet
