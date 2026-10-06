@@ -240,6 +240,8 @@ Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is alre
 
 If the tracked turn explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. Treat generation as terminated. If a queued intermediate message is already due, it may safely supersede that terminated cycle; otherwise stop with a clear diagnosable error.
 
+If the tracked Runner-sent turn shows the verified delivery-failure alert `Message delivery timed out. Please try again.` with a `Retry` button, recover that same send by clicking `Retry` inside that tracked turn exactly once. This is not a new Runner send and must not increment send/continuation counters or click Stop. If Retry is unavailable, does not start, or the same cycle reaches the delivery-timeout alert again, stop with a diagnosable error instead of entering an automatic retry loop. Never use a page-global Retry control when a tracked-turn-scoped control is required.
+
 Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper. When a selection-message container is available, treat it as the authoritative full Assistant response before considering individual Markdown fragments; a later auxiliary Markdown fragment must never hide an earlier handoff block from evaluation.
 
 Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace DOM nodes.

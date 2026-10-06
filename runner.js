@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.32";
+    const VERSION = "3.33";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -18,6 +18,9 @@
         HANDOFF_MIN_READY_MS: 1000,
         STABLE_MS: 900,
         FAST_RESPONSE_FALLBACK_MS: 2500,
+        DELIVERY_RETRY_START_TIMEOUT_MS: 5000,
+        DELIVERY_RETRY_MAX_ATTEMPTS: 1,
+        DELIVERY_TIMEOUT_MESSAGE: "Message delivery timed out. Please try again.",
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
         LONG_WAIT_WAKE_MIN_MINUTES: 1,
@@ -49,6 +52,7 @@
         '[data-chatgpt-search-unit-key$=":assistant"]',
         '[data-chatgpt-selection-message-id]',
         'h4[data-conversation-role="assistant"]',
+        'aside[role="alert"]',
         '[contenteditable="true"][data-composer-markdown]',
         '#prompt-textarea',
         'button[aria-label="Send"]',
@@ -764,6 +768,10 @@
             score += 80;
         }
 
+        if (getDeliveryFailure(turn)) {
+            score += 70;
+        }
+
         return score;
     }
 
@@ -1174,6 +1182,193 @@
         }
 
         return null;
+    }
+
+    function getDeliveryFailure(turn) {
+        if (!turn) {
+            return null;
+        }
+
+        const alerts = [
+            ...turn.querySelectorAll('aside[role="alert"]')
+        ];
+
+        for (const alert of alerts) {
+            const text = normalizeText(
+                alert.innerText ||
+                alert.textContent ||
+                ""
+            );
+
+            if (!text.includes(CONFIG.DELIVERY_TIMEOUT_MESSAGE)) {
+                continue;
+            }
+
+            const button = [
+                ...alert.querySelectorAll("button")
+            ].find(function (candidate) {
+                const label = normalizeText(
+                    candidate.innerText ||
+                    candidate.textContent ||
+                    ""
+                );
+
+                return (
+                    label === "Retry" &&
+                    !candidate.disabled &&
+                    isElementVisible(candidate)
+                );
+            }) || null;
+
+            return {
+                alert,
+                button,
+                message: CONFIG.DELIVERY_TIMEOUT_MESSAGE
+            };
+        }
+
+        return null;
+    }
+
+    async function recoverDeliveryFailure(cycle, failure) {
+        if (
+            stopped ||
+            currentCycle !== cycle ||
+            cycle.processed ||
+            cycle.deliveryRetryState === "clicking"
+        ) {
+            return;
+        }
+
+        if (!cycle.prompt) {
+            fail(
+                "The tracked message failed to deliver, but it was not sent by Sequence Runner, so automatic Retry was not attempted."
+            );
+            return;
+        }
+
+        if (!failure.button) {
+            record("delivery-retry-unavailable", {
+                id: cycle.id,
+                turnKey: cycle.turnKey
+            });
+
+            fail(
+                "ChatGPT reported a message delivery timeout, but the Retry control was not found in the tracked turn."
+            );
+            return;
+        }
+
+        if (
+            cycle.deliveryRetryAttempts >=
+            CONFIG.DELIVERY_RETRY_MAX_ATTEMPTS
+        ) {
+            record("delivery-retry-exhausted", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                attempts: cycle.deliveryRetryAttempts
+            });
+
+            fail(
+                "ChatGPT message delivery timed out again after the automatic Retry. No further retries were attempted."
+            );
+            return;
+        }
+
+        cycle.deliveryRetryAttempts++;
+        cycle.deliveryRetryState = "clicking";
+        cycle.deliveryRetryClickedAt = Date.now();
+        cycle.lastText = null;
+        cycle.lastTextChangedAt = 0;
+        cycle.longWaitNoticeBucket = -1;
+        cycle.activeGenerationStartedAt = null;
+        cycle.wakeState = "idle";
+        cycle.wakeThresholdReachedAt = null;
+        cycle.wakeDeferredReason = null;
+        cycle.wakeSentAt = null;
+
+        record("delivery-retry-clicked", {
+            id: cycle.id,
+            turnKey: cycle.turnKey,
+            attempt: cycle.deliveryRetryAttempts
+        });
+
+        setState(
+            "RETRYING_DELIVERY",
+            "🔁 ההודעה לא נמסרה; לוחץ Retry פעם אחת ועוקב אחר אותו שלב...",
+            "#b45309"
+        );
+
+        const clickedButton = failure.button;
+        clickedButton.click();
+
+        const evidence = await waitUntil(
+            function () {
+                if (
+                    stopped ||
+                    currentCycle !== cycle
+                ) {
+                    return "cancelled";
+                }
+
+                if (!clickedButton.isConnected) {
+                    return "retry-control-replaced";
+                }
+
+                if (getStopButton()) {
+                    return "generation-started";
+                }
+
+                const activeTurn =
+                    resolveCycleTurn(cycle);
+
+                if (
+                    activeTurn &&
+                    getAssistantText(activeTurn)
+                ) {
+                    return "assistant-visible";
+                }
+
+                return null;
+            },
+            CONFIG.DELIVERY_RETRY_START_TIMEOUT_MS,
+            50
+        );
+
+        if (
+            stopped ||
+            currentCycle !== cycle ||
+            evidence === "cancelled"
+        ) {
+            return;
+        }
+
+        if (!evidence) {
+            cycle.deliveryRetryState = "failed";
+
+            record("delivery-retry-failed", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                attempt: cycle.deliveryRetryAttempts,
+                reason: "retry-did-not-start"
+            });
+
+            fail(
+                "ChatGPT message delivery timed out and the automatic Retry did not start a new attempt."
+            );
+            return;
+        }
+
+        cycle.deliveryRetryState = "retried";
+
+        record("delivery-retry-started", {
+            id: cycle.id,
+            turnKey: cycle.turnKey,
+            attempt: cycle.deliveryRetryAttempts,
+            evidence
+        });
+
+        scheduleEvaluate();
     }
 
     function sleep(ms) {
@@ -2325,6 +2520,9 @@
             wakeThresholdReachedAt: cycle.wakeThresholdReachedAt ?? null,
             wakeDeferredReason: cycle.wakeDeferredReason ?? null,
             wakeSentAt: cycle.wakeSentAt ?? null,
+            deliveryRetryAttempts: cycle.deliveryRetryAttempts ?? 0,
+            deliveryRetryState: cycle.deliveryRetryState ?? "idle",
+            deliveryRetryClickedAt: cycle.deliveryRetryClickedAt ?? null,
             processed: !!cycle.processed,
             beforeTurnKeys: cycle.beforeKeys
                 ? [...cycle.beforeKeys]
@@ -3844,6 +4042,9 @@
             wakeThresholdReachedAt: null,
             wakeDeferredReason: null,
             wakeSentAt: null,
+            deliveryRetryAttempts: 0,
+            deliveryRetryState: "idle",
+            deliveryRetryClickedAt: null,
             processed: false
         };
 
@@ -4113,6 +4314,9 @@
                 wakeThresholdReachedAt: null,
                 wakeDeferredReason: null,
                 wakeSentAt: null,
+                deliveryRetryAttempts: 0,
+                deliveryRetryState: "idle",
+                deliveryRetryClickedAt: null,
                 processed: false
             };
 
@@ -4290,6 +4494,9 @@
             wakeThresholdReachedAt: null,
             wakeDeferredReason: null,
             wakeSentAt: null,
+            deliveryRetryAttempts: 0,
+            deliveryRetryState: "idle",
+            deliveryRetryClickedAt: null,
             processed: false
         };
 
@@ -4845,7 +5052,7 @@
         const waitingStatus = function (baseMessage) {
             return getLongWaitStatus(
                 baseMessage,
-                cycle.sentAt,
+                cycle.deliveryRetryClickedAt || cycle.sentAt,
                 cycle,
                 "response"
             );
@@ -4890,6 +5097,19 @@
                 id: cycle.id,
                 turnKey: cycle.turnKey
             });
+        }
+
+        const deliveryFailure =
+            getDeliveryFailure(turn);
+
+        if (deliveryFailure) {
+            recoverDeliveryFailure(
+                cycle,
+                deliveryFailure
+            ).catch(function (err) {
+                fail(err.message, err);
+            });
+            return;
         }
 
         if (
