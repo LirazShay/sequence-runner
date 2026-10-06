@@ -327,6 +327,8 @@ The control panel offers two start modes:
 - **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion and new-chat handoff contract and asks the assistant to continue.
 - **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion and handoff contract, then asks the assistant to begin the first step.
 
+The existing-context start screen also exposes **דלג על הודעה ראשונה**. When checked, the runner assumes the full opening contract is already present in the conversation and sends only `תמשיך לשלב הבא` as its first send. The option is disabled and cleared in new-task mode, and it affects only run startup; automatic handoff behavior is unchanged. Programmatic callers may pass the same choice as the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.
+
 The runner waits for an explicit Start action from the panel. It does not automatically send the first prompt merely because the script was loaded.
 
 Equivalent API calls:
