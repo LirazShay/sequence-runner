@@ -52,18 +52,28 @@ jobs:
       - name: Apply compact contract
         run: node scripts/apply-compact-opening-contract.mjs
 
-      - name: Repair generated newline literals
+      - name: Repair generated source escaping
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('runner.js')
           text = path.read_text()
-          bad = '].join("\n");'
-          good = '].join("\\n");'
-          count = text.count(bad)
-          if count != 2:
-              raise SystemExit(f'Expected exactly 2 malformed generated joins, found {count}')
-          path.write_text(text.replace(bad, good))
+
+          bad_join = '].join("\n");'
+          good_join = '].join("\\n");'
+          join_count = text.count(bad_join)
+          if join_count != 2:
+              raise SystemExit(f'Expected exactly 2 malformed generated joins, found {join_count}')
+          text = text.replace(bad_join, good_join)
+
+          bad_title = 'להיות "צ\'אט N" לפי'
+          good_title = 'להיות \\"צ\'אט N\\" לפי'
+          title_count = text.count(bad_title)
+          if title_count != 1:
+              raise SystemExit(f'Expected exactly 1 generated chat-title quote site, found {title_count}')
+          text = text.replace(bad_title, good_title)
+
+          path.write_text(text)
           PY
 
       - name: Rebuild bookmarklet
