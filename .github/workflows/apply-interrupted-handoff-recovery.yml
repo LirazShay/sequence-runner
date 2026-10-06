@@ -1,0 +1,58 @@
+name: Apply interrupted handoff recovery
+
+on:
+  push:
+    branches:
+      - fix/interrupted-handoff-recovery-active
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/interrupted-handoff-recovery-active
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply source patch
+        run: node scripts/patch-interrupted-handoff-recovery.mjs
+
+      - name: Build bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - name: Run regression suite
+        run: npm test
+
+      - name: Remove temporary patch machinery
+        run: |
+          rm scripts/patch-interrupted-handoff-recovery.mjs
+          rm .github/workflows/apply-interrupted-handoff-recovery.yml
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Recover handoff after connection interruption"
+          git push origin HEAD:fix/interrupted-handoff-recovery-active
