@@ -75,6 +75,7 @@ tests/
     core.spec.js
     handoff.spec.js
     intermediate.spec.js
+    live-smoke.spec.js
     recovery.spec.js
     regressions.spec.js
     wake.spec.js
@@ -144,6 +145,18 @@ __sequenceRunner.getLog()
 __sequenceRunner.getMetrics()
 ```
 
+## Live DOM smoke check
+
+`scripts/live-smoke.js` is the complementary check for the real ChatGPT page. After loading the runner in ChatGPT, paste the whole script into DevTools Console.
+
+The script is observational only: it does not click controls, write into the composer or send messages. It checks that the runner/debug API, panel, visible composer and wake controls match the expected DOM contract, reports current selector counts, prints a PASS/FAIL table, returns the report and stores the same report at:
+
+```js
+window.__sequenceRunnerLiveSmoke
+```
+
+The smoke helper itself is covered by `tests/e2e/live-smoke.spec.js` against the deterministic Mock ChatGPT DOM so the diagnostic tool does not silently drift from the runner contract.
+
 ## Scope boundary
 
-This suite deterministically validates runner behavior against the DOM contract we know. It does not prove that the live ChatGPT site has not changed its DOM. A separate live-DOM smoke/recording tool can be added later for that complementary purpose.
+The deterministic suite validates runner behavior against the DOM contract we know. `scripts/live-smoke.js` complements it by checking that contract against the real ChatGPT page, but it still requires a human to run the script in the live browser. It does not automate or mutate a live conversation.
