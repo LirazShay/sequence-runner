@@ -304,6 +304,7 @@ Behavior:
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition.
 - The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.
+- That first handoff message also includes a chat-title instruction: when the task contains a clear chat number, use `צ'אט N` with that number; otherwise use a short descriptive title based on the work the fresh chat is planned to perform. This instruction is added only to chats opened automatically by handoff.
 - Runner counters, step limits and queued messages remain in the same in-page runner session across the SPA navigation.
 - A malformed handoff marker block stops with an error instead of silently continuing.
 - Priority at a response boundary remains: explicit step limit, malformed-handoff safety check, due intermediate message, valid handoff, normal completion, ordinary continuation.

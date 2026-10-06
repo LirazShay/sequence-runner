@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.26";
+    const VERSION = "3.27";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -471,9 +471,16 @@
             );
         }
 
+        const chatTitleInstruction =
+            "שם הצ'אט: אם מופיע במשימה מספר צ'אט ברור, שם הצ'אט צריך להיות \"צ'אט N\" לפי אותו מספר. אם אין מספר צ'אט ברור, תן לצ'אט שם קצר ותיאורי שמסכם את מה שהצ'אט הזה מתוכנן לבצע.";
+
         return buildFirstPrompt(
             "new",
-            prompt,
+            [
+                prompt,
+                "",
+                chatTitleInstruction
+            ].join("\n"),
             selectedWorkStyle,
             selectedDecisionMode
         );

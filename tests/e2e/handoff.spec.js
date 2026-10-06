@@ -31,6 +31,10 @@ test("valid handoff opens a fresh regular chat and continues with a wrapped new-
   expect(sent[1]).toContain("CONTINUE_FROM_SOURCE_OF_TRUTH");
   expect(sent[1]).toContain("זו המשימה שעליך לבצע כעת:");
   expect(sent[1]).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
+  expect(sent[0]).not.toContain("שם הצ'אט:");
+  expect(sent[1]).toContain("שם הצ'אט:");
+  expect(sent[1]).toContain("שם הצ'אט צריך להיות \"צ'אט N\"");
+  expect(sent[1]).toContain("שם קצר ותיאורי שמסכם את מה שהצ'אט הזה מתוכנן לבצע");
 
   const state = await harness.runnerState();
   expect(state.handoffCount).toBe(1);
