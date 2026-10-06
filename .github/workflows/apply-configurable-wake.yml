@@ -33,6 +33,11 @@ jobs:
       - name: Apply configurable wake changes
         run: node scripts/apply-configurable-wake.mjs
 
+      - name: Update version assertions
+        run: |
+          sed -i 's/"3\.30"/"3.31"/g' tests/e2e/core.spec.js
+          sed -i 's/"3\.30"/"3.31"/g' tests/e2e/diagnostic.spec.js
+
       - name: Build bookmarklet
         run: npm run build:bookmarklet
 
