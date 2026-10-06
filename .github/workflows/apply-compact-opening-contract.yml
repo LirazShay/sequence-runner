@@ -61,8 +61,8 @@ jobs:
           bad = '].join("\n");'
           good = '].join("\\n");'
           count = text.count(bad)
-          if count < 3:
-              raise SystemExit(f'Expected malformed generated joins, found {count}')
+          if count != 2:
+              raise SystemExit(f'Expected exactly 2 malformed generated joins, found {count}')
           path.write_text(text.replace(bad, good))
           PY
 
