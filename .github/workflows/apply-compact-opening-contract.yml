@@ -59,11 +59,11 @@ jobs:
           path = Path('runner.js')
           text = path.read_text()
 
-          bad_join = '].join("\n");'
-          good_join = '].join("\\n");'
+          bad_join = 'join("\n")'
+          good_join = 'join("\\n")'
           join_count = text.count(bad_join)
-          if join_count != 2:
-              raise SystemExit(f'Expected exactly 2 malformed generated joins, found {join_count}')
+          if join_count < 1:
+              raise SystemExit('Expected at least one malformed generated newline join')
           text = text.replace(bad_join, good_join)
 
           bad_title = 'להיות "צ\'אט N" לפי'
@@ -74,19 +74,14 @@ jobs:
           text = text.replace(bad_title, good_title)
 
           path.write_text(text)
+          print(f'Repaired {join_count} generated newline joins and {title_count} title quote site.')
           PY
 
       - name: Validate patched source syntax
         run: |
           if ! node --check runner.js; then
-            echo '--- runner.js lines 555-580 ---'
-            nl -ba runner.js | sed -n '555,580p'
-            echo '--- source repr around parser position ---'
-            python - <<'PY'
-          from pathlib import Path
-          text = Path('runner.js').read_text()
-          print(repr(text[27550:27950]))
-          PY
+            echo '--- runner.js lines 520-620 ---'
+            nl -ba runner.js | sed -n '520,620p'
             exit 1
           fi
 
