@@ -151,7 +151,7 @@ test("committed bookmarklet artifact boots the same runner in a browser", async 
   }));
 
   expect(result).toEqual({
-    version: "3.30",
+    version: "3.31",
     state: "READY_TO_START",
     panel: true
   });

@@ -43,7 +43,7 @@ It opens the door to:
 - Execution logs and diagnostics.
 - Future packaging as a small browser extension or userscript instead of a raw bookmarklet/script.
 
-The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Two deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, and the one-shot 10-minute long-running-response wake nudge.
+The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Two deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, and the one-shot configurable long-running-response wake nudge. The wake delay is selectable from 1–20 minutes (default 5), and its message can be chosen from presets or edited freely per run.
 
 ## Work style and decision mode
 
@@ -72,7 +72,7 @@ __sequenceRunner.startExistingContext("deep", "autonomous")
 __sequenceRunner.startWithTask("TASK_TEXT", "steady", "collaborative")
 ```
 
-Unknown or omitted values safely fall back to `steady` and `autonomous`.
+Unknown or omitted work-style/decision values safely fall back to `steady` and `autonomous`. The wake settings can optionally be supplied programmatically as trailing arguments: `startExistingContext(workStyle, decisionMode, skipFirstMessage, wakeAfterMinutes, wakeMessage)` and `startWithTask(taskText, workStyle, decisionMode, wakeAfterMinutes, wakeMessage)`. Omitted wake values use the 5-minute default and default wake message.
 
 ## Technical design
 
@@ -120,7 +120,7 @@ START
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.
-- If the exact same tracked Assistant response remains actively generating for 10 minutes, the runner immediately attempts one `מה קורה?` wake nudge through the same immediate composer/send path used by **Send now**, without clicking Stop or resending the original runner prompt. It does not wait for the active response to finish and does not require Send to be available before inserting the wake text; after insertion the immediate-send path waits briefly for Send to become available. The nudge is one-shot per response and defers only when the composer already contains user text, so that text is never overwritten.
+- For each run, the start panel lets the user configure the long-running-response wake delay from 1–20 minutes and choose or edit the wake message. The default is 5 minutes with `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`; `מה קורה?` is also available as a preset, and custom text is supported. When the exact same tracked Assistant response remains actively generating past the configured delay, the runner immediately attempts that one wake message through the same immediate composer/send path used by **Send now**, without clicking Stop or resending the original runner prompt. It does not wait for the active response to finish and does not require Send to be available before inserting the wake text; after insertion the immediate-send path waits briefly for Send to become available. The nudge is one-shot per response and defers only when the composer already contains user text, so that text is never overwritten.
 - The user can always stop manually by clicking the status badge.
 - Existing composer text is never overwritten automatically.
 - Text insertion is verified before Send is clicked.
