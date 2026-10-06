@@ -1,0 +1,40 @@
+name: Apply start-mode UX fix
+
+on:
+  push:
+    branches:
+      - fix/start-mode-skip-first-message
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/start-mode-skip-first-message
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: python3 scripts/_fix_start_mode.py
+      - run: npm run build:bookmarklet
+      - run: npm test
+
+      - name: Commit verified fix
+        run: |
+          rm .github/workflows/_fix-start-mode.yml
+          rm scripts/_fix_start_mode.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.js runner.min.js tests/e2e/core.spec.js tests/e2e/diagnostic.spec.js README.md AGENTS.md .github/workflows/_fix-start-mode.yml scripts/_fix_start_mode.py
+          git commit -m "Make opening-message state a start mode"
+          git push origin HEAD:fix/start-mode-skip-first-message
