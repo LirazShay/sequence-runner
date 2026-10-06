@@ -117,6 +117,7 @@ START
 - The script never scans old assistant messages for completion.
 - The Stop button is treated as a strong generation signal, but very fast responses can still complete without requiring that Stop was observed.
 - Assistant text must remain stable for a short period before it is evaluated.
+- If a Runner-sent tracked turn shows ChatGPT's verified `Message delivery timed out. Please try again.` alert, the runner clicks that turn's `Retry` button once and keeps the same cycle. Retry does not count as another Runner send and never clicks Stop. A missing/failed Retry or a second delivery timeout on the same cycle stops with a clear error instead of looping.
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.

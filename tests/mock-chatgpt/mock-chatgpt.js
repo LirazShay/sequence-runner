@@ -326,6 +326,39 @@
     }, startDelayMs);
   }
 
+  function runDeliveryTimeout(turn, response) {
+    const alert = document.createElement("aside");
+    alert.setAttribute("role", "alert");
+
+    const message = document.createElement("div");
+    message.textContent = "Message delivery timed out. Please try again.";
+
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry";
+
+    retry.addEventListener("click", () => {
+      record("retry-click", {
+        turnKey: turn.getAttribute("data-turn-key")
+      });
+      alert.remove();
+      runResponse(
+        turn,
+        response.retryResponse || {
+          type: "normal",
+          text: "Mock response after retry"
+        }
+      );
+    });
+
+    alert.append(message, retry);
+    turn.appendChild(alert);
+
+    record("delivery-timeout", {
+      turnKey: turn.getAttribute("data-turn-key")
+    });
+  }
+
   function runStoppedThinking(turn, response) {
     beginGeneration();
 
@@ -351,6 +384,11 @@
 
   function runResponse(turn, response) {
     const selected = response || state.defaultResponse;
+
+    if (selected.type === "delivery-timeout") {
+      runDeliveryTimeout(turn, selected);
+      return;
+    }
 
     if (selected.type === "stopped-thinking") {
       runStoppedThinking(turn, selected);

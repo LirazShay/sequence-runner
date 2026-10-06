@@ -125,3 +125,57 @@ test("manual turn during continuation delay is evaluated before stale continuati
     entry.trigger === "before-send"
   )).toBeTruthy();
 });
+
+
+test("delivery timeout clicks Retry once and continues the same runner cycle", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      {
+        type: "delivery-timeout",
+        retryResponse: { type: "normal", text: "Recovered after delivery Retry.\nסיימתי" }
+      }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE");
+
+  expect(await harness.sentMessages()).toHaveLength(1);
+
+  const events = await harness.events();
+  expect(events.filter((event) => event.type === "retry-click")).toHaveLength(1);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "delivery-retry-clicked" && entry.attempt === 1)).toBeTruthy();
+  expect(log.some((entry) => entry.event === "delivery-retry-started")).toBeTruthy();
+  expect(log.some((entry) => entry.event === "response-complete")).toBeTruthy();
+});
+
+test("a second delivery timeout stops instead of creating an automatic Retry loop", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      {
+        type: "delivery-timeout",
+        retryResponse: {
+          type: "delivery-timeout",
+          retryResponse: { type: "normal", text: "must not be reached" }
+        }
+      }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR");
+
+  expect(await harness.sentMessages()).toHaveLength(1);
+
+  const events = await harness.events();
+  expect(events.filter((event) => event.type === "retry-click")).toHaveLength(1);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "delivery-retry-exhausted" && entry.attempts === 1)).toBeTruthy();
+  const error = log.findLast((entry) => entry.event === "error");
+  expect(error?.message).toContain("timed out again after the automatic Retry");
+});
