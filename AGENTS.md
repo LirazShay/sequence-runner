@@ -311,8 +311,10 @@ The runner must not assume that the task was already stated in the chat.
 The management panel supports:
 
 - existing-context mode, which preserves the original continuation behavior
+- existing-ready mode, shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer start mode, not a checkbox, and sends only `תמשיך לשלב הבא` as the first runner send
 - new-task mode, which embeds user-supplied free-form task text into the first runner prompt
-- an explicit `דלג על הודעה ראשונה` option for existing-context mode; when selected, assume the full opening contract already exists and send only `תמשיך לשלב הבא` as the first runner send. Do not apply this option to new-task mode and do not let it alter automatic handoff behavior.
+
+Do not let the existing-ready start mode alter automatic handoff behavior.
 
 Loading the script should prepare the runner and panel, not automatically send the first prompt. Sending begins only after an explicit Start action or an equivalent public API call.
 

@@ -55,38 +55,28 @@ test("negative wording does not count as completion", async ({ harness }) => {
   expect(await harness.sentMessages()).toHaveLength(2);
 });
 
-test("skip-first-message option sends only the regular continuation prompt", async ({ harness }) => {
+test("opening-message-already-sent is a distinct start mode", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     responses: [{ type: "normal", text: "סיימתי" }]
   });
 
-  const row = harness.page.locator('[data-role="skip-first-message-row"]');
-  const skipFirstMessage = harness.page.locator('[data-input="skip-first-message"]');
-  await expect(row).toContainText("דלג על הודעה ראשונה");
-  await expect(skipFirstMessage).toBeEnabled();
-  await expect(skipFirstMessage).not.toBeChecked();
-  await skipFirstMessage.check();
+  const taskMode = harness.page.locator('[data-input="task-mode"]');
+  await expect(taskMode.locator("option")).toHaveText([
+    "המשימה כבר ניתנה בצ׳אט",
+    "המשימה והודעת הפתיחה כבר נשלחו בצ׳אט",
+    "משימה חדשה — שלב אותה בהודעה הראשונה"
+  ]);
+  await expect(harness.page.locator('[data-input="skip-first-message"]')).toHaveCount(0);
 
+  await taskMode.selectOption("existing-ready");
   await harness.page.locator('[data-action="start-run"]').click();
   await harness.waitForState("DONE");
 
   expect(await harness.sentMessages()).toEqual(["תמשיך לשלב הבא"]);
   const state = await harness.runnerState();
+  expect(state.taskMode).toBe("existing");
   expect(state.skipFirstMessage).toBe(true);
-});
-
-test("new-task mode disables and clears skip-first-message", async ({ harness }) => {
-  await harness.load();
-
-  const taskMode = harness.page.locator('[data-input="task-mode"]');
-  const skipFirstMessage = harness.page.locator('[data-input="skip-first-message"]');
-
-  await skipFirstMessage.check();
-  await taskMode.selectOption("new");
-
-  await expect(skipFirstMessage).toBeDisabled();
-  await expect(skipFirstMessage).not.toBeChecked();
 });
 
 test("new-task mode embeds the task into the first runner prompt", async ({ harness }) => {
@@ -161,7 +151,7 @@ test("committed bookmarklet artifact boots the same runner in a browser", async 
   }));
 
   expect(result).toEqual({
-    version: "3.28",
+    version: "3.29",
     state: "READY_TO_START",
     panel: true
   });

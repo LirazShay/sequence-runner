@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.28";
+    const VERSION = "3.29";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -123,12 +123,9 @@
         '<div style="font-weight:700;margin-bottom:7px">התחלה</div>',
         '<select data-input="task-mode" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
         '<option value="existing">המשימה כבר ניתנה בצ׳אט</option>',
+        '<option value="existing-ready">המשימה והודעת הפתיחה כבר נשלחו בצ׳אט</option>',
         '<option value="new">משימה חדשה — שלב אותה בהודעה הראשונה</option>',
         '</select>',
-        '<label data-role="skip-first-message-row" style="display:flex;align-items:center;gap:7px;padding:1px 1px 7px;cursor:pointer">',
-        '<input data-input="skip-first-message" type="checkbox" style="margin:0">',
-        '<span>דלג על הודעה ראשונה</span>',
-        '</label>',
         '<select data-input="work-style" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
         '<option value="steady">Steady — התקדמות טבעית</option>',
         '<option value="deep">Deep — עבודה עמוקה ומקטעים משמעותיים</option>',
@@ -2529,10 +2526,6 @@
             '[data-input="task-text"]'
         );
 
-        const skipFirstMessageInput = panel.querySelector(
-            '[data-input="skip-first-message"]'
-        );
-
         const workStyleSelect = panel.querySelector(
             '[data-input="work-style"]'
         );
@@ -2549,16 +2542,6 @@
                 taskTextArea.style.display =
                     isNewTask ? "" : "none";
             }
-
-            if (skipFirstMessageInput) {
-                skipFirstMessageInput.disabled =
-                    isNewTask;
-
-                if (isNewTask) {
-                    skipFirstMessageInput.checked =
-                        false;
-                }
-            }
         };
 
         taskModeSelect?.addEventListener(
@@ -2573,12 +2556,17 @@
         )?.addEventListener(
             "click",
             function () {
+                const startMode =
+                    taskModeSelect?.value || "existing";
+
                 beginRun(
-                    taskModeSelect?.value || "existing",
+                    startMode === "new"
+                        ? "new"
+                        : "existing",
                     taskTextArea?.value || "",
                     workStyleSelect?.value || "steady",
                     decisionModeSelect?.value || "autonomous",
-                    !!skipFirstMessageInput?.checked
+                    startMode === "existing-ready"
                 ).catch(function (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -3355,10 +3343,6 @@
             '[data-input="decision-mode"]'
         );
 
-        const skipFirstMessage = panel.querySelector(
-            '[data-input="skip-first-message"]'
-        );
-
         const inputs = [
             '[data-input="injection-text"]',
             '[data-input="injection-after"]',
@@ -3376,11 +3360,6 @@
 
         if (decisionMode) {
             decisionMode.value = "autonomous";
-        }
-
-        if (skipFirstMessage) {
-            skipFirstMessage.checked = false;
-            skipFirstMessage.disabled = false;
         }
 
         if (taskText) {
