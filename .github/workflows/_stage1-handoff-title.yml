@@ -1,0 +1,134 @@
+name: Apply stage 1 handoff title prompt
+
+on:
+  push:
+    branches:
+      - feature/handoff-chat-title-prompt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-stage1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/handoff-chat-title-prompt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply stage 1 changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          runner = Path("runner.js")
+          text = runner.read_text(encoding="utf-8")
+
+          text = text.replace(
+              '    const VERSION = "3.26";',
+              '    const VERSION = "3.27";',
+              1,
+          )
+
+          old = '''    function buildHandoffPrompt(nextChatPrompt) {
+        const prompt =
+            normalizeText(nextChatPrompt);
+
+        if (!prompt) {
+            throw new Error(
+                "The next-chat prompt cannot be empty."
+            );
+        }
+
+        return buildFirstPrompt(
+            "new",
+            prompt,
+            selectedWorkStyle,
+            selectedDecisionMode
+        );
+    }
+'''
+
+          new = '''    function buildHandoffPrompt(nextChatPrompt) {
+        const prompt =
+            normalizeText(nextChatPrompt);
+
+        if (!prompt) {
+            throw new Error(
+                "The next-chat prompt cannot be empty."
+            );
+        }
+
+        const chatTitleInstruction =
+            "שם הצ'אט: אם מופיע במשימה מספר צ'אט ברור, שם הצ'אט צריך להיות \"צ'אט N\" לפי אותו מספר. אם אין מספר צ'אט ברור, תן לצ'אט שם קצר ותיאורי שמסכם את מה שהצ'אט הזה מתוכנן לבצע.";
+
+        return buildFirstPrompt(
+            "new",
+            [
+                prompt,
+                "",
+                chatTitleInstruction
+            ].join("\\n"),
+            selectedWorkStyle,
+            selectedDecisionMode
+        );
+    }
+'''
+
+          if old not in text:
+              raise SystemExit("buildHandoffPrompt source block not found")
+
+          runner.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          test_file = Path("tests/e2e/handoff.spec.js")
+          tests = test_file.read_text(encoding="utf-8")
+          old_test = '''  expect(sent[1]).toContain("CONTINUE_FROM_SOURCE_OF_TRUTH");
+  expect(sent[1]).toContain("זו המשימה שעליך לבצע כעת:");
+  expect(sent[1]).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
+'''
+          new_test = '''  expect(sent[1]).toContain("CONTINUE_FROM_SOURCE_OF_TRUTH");
+  expect(sent[1]).toContain("זו המשימה שעליך לבצע כעת:");
+  expect(sent[1]).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
+  expect(sent[0]).not.toContain("שם הצ'אט:");
+  expect(sent[1]).toContain("שם הצ'אט:");
+  expect(sent[1]).toContain("שם הצ'אט צריך להיות \\\"צ'אט N\\\"");
+  expect(sent[1]).toContain("שם קצר ותיאורי שמסכם את מה שהצ'אט הזה מתוכנן לבצע");
+'''
+
+          if old_test not in tests:
+              raise SystemExit("handoff test assertion block not found")
+
+          test_file.write_text(tests.replace(old_test, new_test, 1), encoding="utf-8")
+
+          readme = Path("README.md")
+          readme_text = readme.read_text(encoding="utf-8")
+          anchor = "- The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.\n"
+          addition = anchor + "- That first handoff message also includes a chat-title instruction: when the task contains a clear chat number, use `צ'אט N` with that number; otherwise use a short descriptive title based on the work the fresh chat is planned to perform. This instruction is added only to chats opened automatically by handoff.\n"
+
+          if anchor not in readme_text:
+              raise SystemExit("README handoff anchor not found")
+
+          readme.write_text(readme_text.replace(anchor, addition, 1), encoding="utf-8")
+          PY
+
+      - name: Regenerate bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Run tests
+        run: npm test
+
+      - name: Commit verified stage 1
+        run: |
+          rm .github/workflows/_stage1-handoff-title.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.js runner.min.js tests/e2e/handoff.spec.js README.md .github/workflows/_stage1-handoff-title.yml
+          git commit -m "Add chat title guidance to handoff prompts"
+          git push origin HEAD:feature/handoff-chat-title-prompt
