@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - fix/compact-opening-contract
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.head_ref == 'fix/compact-opening-contract' || github.ref == 'refs/heads/fix/compact-opening-contract'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
