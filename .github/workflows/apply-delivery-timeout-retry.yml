@@ -31,7 +31,22 @@ jobs:
         run: npm ci
 
       - name: Apply patch
-        run: node scripts/apply-delivery-timeout-retry.mjs
+        run: |
+          perl -0pi -e 's/  3,\n  "cycle retry fields"/  2,\n  "cycle retry fields"/' scripts/apply-delivery-timeout-retry.mjs
+          node scripts/apply-delivery-timeout-retry.mjs
+          node <<'NODE'
+          const fs = require("node:fs");
+          const file = "runner.js";
+          let source = fs.readFileSync(file, "utf8");
+          const from = "                wakeSentAt: null,\n                processed: false";
+          const to = "                wakeSentAt: null,\n                deliveryRetryAttempts: 0,\n                deliveryRetryState: \"idle\",\n                deliveryRetryClickedAt: null,\n                processed: false";
+          const count = source.split(from).length - 1;
+          if (count !== 1) {
+            throw new Error(`immediate cycle retry fields: expected 1 match, found ${count}`);
+          }
+          source = source.replace(from, to);
+          fs.writeFileSync(file, source);
+          NODE
 
       - name: Syntax check
         run: node --check runner.js
