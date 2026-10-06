@@ -29,6 +29,7 @@ jobs:
       - run: npm run build:bookmarklet
       - run: npm test
 
+      # Retry verification after an infrastructure-level Playwright global timeout.
       - name: Commit verified fix
         run: |
           rm .github/workflows/_fix-handoff-full-response.yml
