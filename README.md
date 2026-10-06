@@ -118,6 +118,7 @@ START
 - The Stop button is treated as a strong generation signal, but very fast responses can still complete without requiring that Stop was observed.
 - Assistant text must remain stable for a short period before it is evaluated.
 - If a Runner-sent tracked turn shows ChatGPT's verified `Message delivery timed out. Please try again.` alert, the runner clicks that turn's `Retry` button once and keeps the same cycle. Retry does not count as another Runner send and never clicks Stop. A missing/failed Retry or a second delivery timeout on the same cycle stops with a clear error instead of looping.
+- If ChatGPT shows the exact recovery UI `Connection interrupted. Waiting for the complete answer`, that interruption state takes precedence over a lingering global Stop control. A handoff may be recovered only when the full `NEXT_CHAT_PROMPT` is present and non-empty and the only missing handoff marker is the final outer `[[/SEQUENCE_RUNNER_NEW_CHAT]]`. Any other partial response remains waiting for ChatGPT recovery; a bare `סיימתי` is never promoted to completion while the connection-interrupted UI is present. A deferred first Runner send also yields to a newer external turn only when that turn contains an unambiguous safe handoff.
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.

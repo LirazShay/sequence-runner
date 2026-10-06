@@ -326,6 +326,36 @@
     }, startDelayMs);
   }
 
+  function runConnectionInterrupted(turn, response) {
+    beginGeneration();
+
+    schedule(() => {
+      const body = createAssistantBody(
+        turn,
+        response.wrapper || "markdown"
+      );
+      body.textContent = String(
+        response.text ?? "Mock interrupted response"
+      );
+
+      const status = document.createElement("div");
+      status.setAttribute("role", "status");
+
+      const message = document.createElement("span");
+      message.className = "text-chatgpt-recovery";
+      message.textContent =
+        "Connection interrupted. Waiting for the complete answer";
+
+      status.appendChild(message);
+      turn.appendChild(status);
+
+      record("connection-interrupted", {
+        turnKey: turn.getAttribute("data-turn-key"),
+        text: normalize(body.textContent)
+      });
+    }, Number(response.delayMs ?? 80));
+  }
+
   function runDeliveryTimeout(turn, response) {
     const alert = document.createElement("aside");
     alert.setAttribute("role", "alert");
@@ -384,6 +414,11 @@
 
   function runResponse(turn, response) {
     const selected = response || state.defaultResponse;
+
+    if (selected.type === "connection-interrupted") {
+      runConnectionInterrupted(turn, selected);
+      return;
+    }
 
     if (selected.type === "delivery-timeout") {
       runDeliveryTimeout(turn, selected);
