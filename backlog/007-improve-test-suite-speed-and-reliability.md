@@ -49,3 +49,5 @@ Investigate and improve the test architecture and runtime, including:
 ## Notes
 
 The immediate CI global timeout was raised from 40 seconds to 60 seconds as a safety margin while the suite is growing. This backlog item should treat that as temporary headroom, not as the optimization itself.
+
+Observed baseline when this item was opened: the suite hit the former 40-second global timeout after 21 of 38 tests had passed; the newly added handoff regression had already passed before the timeout. This is useful evidence that the suite-level deadline, not that regression, caused the run to fail.
