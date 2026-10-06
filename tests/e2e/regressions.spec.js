@@ -179,3 +179,106 @@ test("a second delivery timeout stops instead of creating an automatic Retry loo
   const error = log.findLast((entry) => entry.event === "error");
   expect(error?.message).toContain("timed out again after the automatic Retry");
 });
+
+
+test("connection interruption recovers a handoff when only the outer closing marker is missing", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      {
+        type: "connection-interrupted",
+        text: [
+          "Current chat segment complete.",
+          "סיימתי",
+          "[[SEQUENCE_RUNNER_NEW_CHAT]]",
+          "בשלב זה מומלץ לעבור לצ'אט חדש.",
+          "[[NEXT_CHAT_PROMPT]]",
+          "אני צאט 22 תתחיל",
+          "[[/NEXT_CHAT_PROMPT]]"
+        ].join("\n")
+      },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE", 8000);
+
+  const state = await harness.page.evaluate(() => window.__sequenceRunner.getState());
+  expect(state.handoffCount).toBe(1);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toContain("אני צאט 22 תתחיל");
+
+  const events = await harness.events();
+  expect(events.some((entry) => entry.type === "stop-click")).toBeFalsy();
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "connection-interrupted-handoff-recovered" &&
+    entry.recoveredOuterEnd === true
+  )).toBeTruthy();
+});
+
+test("connection interruption never promotes a bare completion marker to DONE", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "connection-interrupted", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("WAITING_FOR_INTERRUPTED_RESPONSE", 5000);
+
+  const state = await harness.page.evaluate(() => window.__sequenceRunner.getState());
+  expect(state.stopped).toBe(false);
+  expect(state.state).toBe("WAITING_FOR_INTERRUPTED_RESPONSE");
+  expect(await harness.sentMessages()).toHaveLength(1);
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop());
+});
+
+test("pending first send yields to a newer interrupted external handoff instead of sending stale setup", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      {
+        type: "connection-interrupted",
+        text: [
+          "Current chat segment complete.",
+          "סיימתי",
+          "[[SEQUENCE_RUNNER_NEW_CHAT]]",
+          "בשלב זה מומלץ לעבור לצ'אט חדש.",
+          "[[NEXT_CHAT_PROMPT]]",
+          "אני צאט 22 תתחיל",
+          "[[/NEXT_CHAT_PROMPT]]"
+        ].join("\n")
+      },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("MANUAL_OVERRIDE");
+  });
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("WAITING_FOR_COMPOSER", 4000);
+  await harness.page.locator('button[aria-label="Send"]').click();
+  await harness.waitForState("DONE", 8000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[0]).toBe("MANUAL_OVERRIDE");
+  expect(sent[1]).toContain("אני צאט 22 תתחיל");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "first-send-superseded-by-external-handoff" &&
+    entry.pendingLabel === "first"
+  )).toBeTruthy();
+  expect(log.some((entry) =>
+    entry.event === "connection-interrupted-handoff-recovered"
+  )).toBeTruthy();
+});

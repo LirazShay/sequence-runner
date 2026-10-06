@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.34";
+    const VERSION = "3.35";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -21,6 +21,7 @@
         DELIVERY_RETRY_START_TIMEOUT_MS: 5000,
         DELIVERY_RETRY_MAX_ATTEMPTS: 1,
         DELIVERY_TIMEOUT_MESSAGE: "Message delivery timed out. Please try again.",
+        CONNECTION_INTERRUPTED_MESSAGE: "Connection interrupted. Waiting for the complete answer",
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
         LONG_WAIT_WAKE_MIN_MINUTES: 1,
@@ -53,6 +54,7 @@
         '[data-chatgpt-selection-message-id]',
         'h4[data-conversation-role="assistant"]',
         'aside[role="alert"]',
+        '[role="status"] .text-chatgpt-recovery',
         '[contenteditable="true"][data-composer-markdown]',
         '#prompt-textarea',
         'button[aria-label="Send"]',
@@ -726,6 +728,124 @@
         };
     }
 
+    function parseInterruptedHandoff(text) {
+        const normalized = normalizeText(text);
+        const normal = parseHandoff(normalized);
+
+        if (normal.requested && !normal.error) {
+            return {
+                ...normal,
+                recoveredOuterEnd: false
+            };
+        }
+
+        const outerStartIndex =
+            normalized.lastIndexOf(
+                CONFIG.HANDOFF_OUTER_START
+            );
+
+        if (outerStartIndex < 0) {
+            return {
+                requested: normal.requested,
+                nextChatPrompt: null,
+                error: normal.error,
+                recoveredOuterEnd: false
+            };
+        }
+
+        const outerEndIndex =
+            normalized.indexOf(
+                CONFIG.HANDOFF_OUTER_END,
+                outerStartIndex +
+                    CONFIG.HANDOFF_OUTER_START.length
+            );
+
+        const duplicateOuterStartIndex =
+            normalized.indexOf(
+                CONFIG.HANDOFF_OUTER_START,
+                outerStartIndex +
+                    CONFIG.HANDOFF_OUTER_START.length
+            );
+
+        const promptStartIndex =
+            normalized.indexOf(
+                CONFIG.HANDOFF_PROMPT_START,
+                outerStartIndex +
+                    CONFIG.HANDOFF_OUTER_START.length
+            );
+
+        const promptEndIndex =
+            promptStartIndex < 0
+                ? -1
+                : normalized.indexOf(
+                      CONFIG.HANDOFF_PROMPT_END,
+                      promptStartIndex +
+                          CONFIG.HANDOFF_PROMPT_START.length
+                  );
+
+        const duplicatePromptStartIndex =
+            promptStartIndex < 0
+                ? -1
+                : normalized.indexOf(
+                      CONFIG.HANDOFF_PROMPT_START,
+                      promptStartIndex +
+                          CONFIG.HANDOFF_PROMPT_START.length
+                  );
+
+        const duplicatePromptEndIndex =
+            promptEndIndex < 0
+                ? -1
+                : normalized.indexOf(
+                      CONFIG.HANDOFF_PROMPT_END,
+                      promptEndIndex +
+                          CONFIG.HANDOFF_PROMPT_END.length
+                  );
+
+        const safelyMissingOnlyOuterEnd =
+            outerEndIndex < 0 &&
+            duplicateOuterStartIndex < 0 &&
+            promptStartIndex > outerStartIndex &&
+            promptEndIndex > promptStartIndex &&
+            duplicatePromptStartIndex < 0 &&
+            duplicatePromptEndIndex < 0 &&
+            normalized.endsWith(
+                CONFIG.HANDOFF_PROMPT_END
+            );
+
+        if (!safelyMissingOnlyOuterEnd) {
+            return {
+                requested: true,
+                nextChatPrompt: null,
+                error: "The interrupted handoff is not safely recoverable.",
+                recoveredOuterEnd: false
+            };
+        }
+
+        const nextChatPrompt = normalizeText(
+            normalized.slice(
+                promptStartIndex +
+                    CONFIG.HANDOFF_PROMPT_START.length,
+                promptEndIndex
+            )
+        );
+
+        if (!nextChatPrompt) {
+            return {
+                requested: true,
+                nextChatPrompt: null,
+                error: "The next-chat prompt is empty.",
+                recoveredOuterEnd: false
+            };
+        }
+
+        return {
+            requested: true,
+            nextChatPrompt,
+            error: null,
+            recoveredOuterEnd: true
+        };
+    }
+
     function getTurns() {
         return [...document.querySelectorAll(SELECTORS.turn)].filter(function (el) {
             return el.getAttribute("data-turn-key");
@@ -1146,6 +1266,53 @@
             assistant.textContent ||
             ""
         );
+    }
+
+    function getConnectionInterruptedStatus(turn) {
+        const candidates = [
+            ...document.querySelectorAll(
+                '[role="status"],.text-chatgpt-recovery'
+            )
+        ];
+
+        for (const candidate of candidates) {
+            if (!isElementVisible(candidate)) {
+                continue;
+            }
+
+            const text = normalizeText(
+                candidate.innerText ||
+                candidate.textContent ||
+                ""
+            );
+
+            if (
+                text !==
+                CONFIG.CONNECTION_INTERRUPTED_MESSAGE
+            ) {
+                continue;
+            }
+
+            const ownerTurn =
+                candidate.closest(SELECTORS.turn);
+
+            if (
+                ownerTurn &&
+                turn &&
+                getTurnKey(ownerTurn) !==
+                    getTurnKey(turn)
+            ) {
+                continue;
+            }
+
+            return {
+                element: candidate,
+                message:
+                    CONFIG.CONNECTION_INTERRUPTED_MESSAGE
+            };
+        }
+
+        return null;
     }
 
     function getTerminalResponseMarker(turn) {
@@ -3998,23 +4165,23 @@
             .filter(Boolean);
     }
 
-    function adoptExternalTurnForContinuation(
+    function adoptExternalTurn(
         baselineTurnKeys,
         trigger,
-        pending
+        pending,
+        eventName,
+        existingTurn
     ) {
         const baseline =
             normalizeTurnKeySnapshot(
                 baselineTurnKeys
             );
 
-        if (!baseline.length) {
-            return false;
-        }
-
-        const turn = findNewTurn(
-            new Set(baseline)
-        );
+        const turn =
+            existingTurn ||
+            findNewTurn(
+                new Set(baseline)
+            );
 
         if (!turn) {
             return false;
@@ -4049,7 +4216,8 @@
         };
 
         record(
-            "continuation-superseded-by-external-turn",
+            eventName ||
+                "pending-auto-send-superseded-by-external-turn",
             {
                 trigger,
                 pendingLabel:
@@ -4071,6 +4239,71 @@
         renderPanel();
         scheduleEvaluate();
         return true;
+    }
+
+    function adoptExternalTurnForContinuation(
+        baselineTurnKeys,
+        trigger,
+        pending
+    ) {
+        return adoptExternalTurn(
+            baselineTurnKeys,
+            trigger,
+            pending,
+            "continuation-superseded-by-external-turn"
+        );
+    }
+
+    function adoptExternalHandoffForPendingFirst(
+        baselineTurnKeys,
+        trigger,
+        pending
+    ) {
+        const baseline =
+            normalizeTurnKeySnapshot(
+                baselineTurnKeys
+            );
+
+        const turn = findNewTurn(
+            new Set(baseline)
+        );
+
+        if (!turn) {
+            return false;
+        }
+
+        const text = getAssistantText(turn);
+        if (!text) {
+            return false;
+        }
+
+        const interrupted =
+            getConnectionInterruptedStatus(turn);
+
+        const handoff = interrupted
+            ? parseInterruptedHandoff(text)
+            : parseHandoff(text);
+
+        const responseIsSafelyFinal =
+            !!interrupted ||
+            !getStopButton() ||
+            hasFinalUi(turn);
+
+        if (
+            !responseIsSafelyFinal ||
+            !handoff.requested ||
+            handoff.error
+        ) {
+            return false;
+        }
+
+        return adoptExternalTurn(
+            baseline,
+            trigger,
+            pending,
+            "first-send-superseded-by-external-handoff",
+            turn
+        );
     }
 
     function deferAutoSend(
@@ -4125,11 +4358,21 @@
         }
 
         if (
-            pendingAutoSend.label === "continue" &&
-            adoptExternalTurnForContinuation(
-                pendingAutoSend.baselineTurnKeys,
-                "pending-resume",
-                pendingAutoSend
+            (
+                pendingAutoSend.label === "continue" &&
+                adoptExternalTurnForContinuation(
+                    pendingAutoSend.baselineTurnKeys,
+                    "pending-resume",
+                    pendingAutoSend
+                )
+            ) ||
+            (
+                pendingAutoSend.label === "first" &&
+                adoptExternalHandoffForPendingFirst(
+                    pendingAutoSend.baselineTurnKeys,
+                    "pending-resume",
+                    pendingAutoSend
+                )
             )
         ) {
             return true;
@@ -4837,7 +5080,7 @@
         return true;
     }
 
-    function completeCycle(cycle, text) {
+    function completeCycle(cycle, text, options) {
         if (
             stopped ||
             currentCycle !== cycle ||
@@ -4856,6 +5099,7 @@
             isDone(text);
 
         const handoff =
+            options?.handoff ||
             parseHandoff(text);
 
         record("response-complete", {
@@ -5112,6 +5356,105 @@
             return;
         }
 
+        const text =
+            getAssistantText(turn);
+
+        const connectionInterrupted =
+            getConnectionInterruptedStatus(turn);
+
+        if (connectionInterrupted) {
+            updateLongRunningWake(
+                cycle,
+                false
+            );
+
+            if (
+                text &&
+                text !== cycle.lastText
+            ) {
+                cycle.lastText = text;
+                cycle.lastTextChangedAt =
+                    Date.now();
+
+                record(
+                    "assistant-text-changed",
+                    {
+                        id: cycle.id,
+                        length: text.length
+                    }
+                );
+            }
+
+            const interruptedHandoff =
+                text
+                    ? parseInterruptedHandoff(text)
+                    : {
+                          requested: false,
+                          nextChatPrompt: null,
+                          error: null,
+                          recoveredOuterEnd: false
+                      };
+
+            if (
+                !text ||
+                !interruptedHandoff.requested ||
+                interruptedHandoff.error
+            ) {
+                setState(
+                    "WAITING_FOR_INTERRUPTED_RESPONSE",
+                    "⚠️ החיבור נקטע; התגובה החלקית אינה בטוחה להמשך אוטומטי ולכן ממתין להתאוששות ChatGPT.",
+                    "#b45309"
+                );
+                return;
+            }
+
+            const interruptedStableFor =
+                Date.now() -
+                cycle.lastTextChangedAt;
+
+            if (
+                interruptedStableFor <
+                CONFIG.STABLE_MS
+            ) {
+                setState(
+                    "WAITING_FOR_INTERRUPTED_HANDOFF_STABLE",
+                    "⏳ החיבור נקטע, אך נמצא handoff שלם מספיק; ממתין ליציבות הטקסט לפני המעבר...",
+                    "#b45309"
+                );
+                return;
+            }
+
+            record(
+                "connection-interrupted-handoff-recovered",
+                {
+                    id: cycle.id,
+                    turnKey: cycle.turnKey,
+                    recoveredOuterEnd:
+                        !!interruptedHandoff.recoveredOuterEnd,
+                    promptLength:
+                        interruptedHandoff.nextChatPrompt.length,
+                    stableFor:
+                        interruptedStableFor
+                }
+            );
+
+            setState(
+                "EVALUATING",
+                "🔎 החיבור נקטע, אך ה-handoff ניתן לשחזור בטוח; ממשיך למעבר...",
+                "#17a2b8"
+            );
+
+            completeCycle(
+                cycle,
+                text,
+                {
+                    handoff:
+                        interruptedHandoff
+                }
+            );
+            return;
+        }
+
         if (
             updateLongRunningWake(
                 cycle,
@@ -5123,9 +5466,6 @@
 
         const finalUiSeen =
             hasFinalUi(turn);
-
-        const text =
-            getAssistantText(turn);
 
         const terminalMarker =
             !stopButton && !text

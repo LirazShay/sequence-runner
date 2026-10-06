@@ -248,6 +248,8 @@ Re-resolve the current turn against the post-send DOM when necessary because vir
 
 Stable-text timing remains a fallback when final UI is unavailable; with final UI present, the short stability window protects against evaluating an incomplete final DOM snapshot.
 
+If ChatGPT shows the exact recovery UI `Connection interrupted. Waiting for the complete answer`, treat that interruption as stronger evidence than a lingering global Stop button. Do not evaluate arbitrary partial content. A handoff is recoverable only when `[[SEQUENCE_RUNNER_NEW_CHAT]]`, `[[NEXT_CHAT_PROMPT]]`, a non-empty prompt and `[[/NEXT_CHAT_PROMPT]]` are present in order, the prompt-end marker is the final response text, and the only missing handoff marker is the final outer `[[/SEQUENCE_RUNNER_NEW_CHAT]]`. Keep malformed or otherwise partial interrupted responses waiting for ChatGPT recovery, and never treat a bare interrupted `סיימתי` as global completion. If the first Runner send is deferred and a newer external turn appears, it may supersede that pending first send only when the turn has an unambiguous safe handoff under these rules.
+
 ### Long-running responses
 
 Do not stop a valid ChatGPT generation merely because an arbitrary wall-clock timeout elapsed.
@@ -510,6 +512,8 @@ Important behavioral cases include:
 - management-panel sections preserve the intended utility order, with metrics and intermediate messages above occasional/test controls and diagnostics last
 - the explicit step limit takes precedence over intermediate messages
 - a valid handoff marker block is parsed only when it is complete and at the end of the response
+- an exact connection-interrupted response recovers a handoff only when the `NEXT_CHAT_PROMPT` is complete and only the final outer handoff close is missing
+- a bare `סיימתי` under connection interruption does not complete the run, and a deferred first send yields only to an unambiguous newer handoff
 - a response with `סיימתי` immediately before a valid final handoff block performs the handoff instead of stopping
 - a bare final `סיימתי` stops only when no handoff block follows it
 - a malformed handoff block fails safely instead of sending a continuation
