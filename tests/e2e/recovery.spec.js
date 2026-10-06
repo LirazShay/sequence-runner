@@ -1,5 +1,8 @@
 import { test, expect } from "./fixture.js";
 
+const DEFAULT_WAKE_MESSAGE =
+  "לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.";
+
 test("occupied composer defers automatic send and resumes after the user clears it", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({ responses: [{ type: "normal", text: "סיימתי" }] });
@@ -34,11 +37,36 @@ test("restart fully resets a completed runner for a second task", async ({ harne
   await harness.load();
   await harness.setScenario({ responses: [{ type: "normal", text: "סיימתי" }] });
 
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "2");
+  await harness.page.locator('[data-input="wake-message"]').fill("CUSTOM_WAKE");
+  await harness.page.click('[data-action="start-run"]');
   await harness.waitForState("DONE");
+
+  const firstRunState = await harness.runnerState();
+  expect(firstRunState.longWaitWake).toEqual({
+    afterMinutes: 2,
+    message: "CUSTOM_WAKE"
+  });
 
   await harness.page.evaluate(() => window.__sequenceRunner.restart());
   await harness.waitForState("READY_TO_START");
+
+  const resetWake = await harness.page.evaluate(() => ({
+    state: window.__sequenceRunner.getState().longWaitWake,
+    delay: document.querySelector('[data-input="wake-after-minutes"]')?.value || null,
+    preset: document.querySelector('[data-input="wake-message-preset"]')?.value || null,
+    message: document.querySelector('[data-input="wake-message"]')?.value || null
+  }));
+
+  expect(resetWake).toEqual({
+    state: {
+      afterMinutes: 5,
+      message: DEFAULT_WAKE_MESSAGE
+    },
+    delay: "5",
+    preset: "supportive",
+    message: DEFAULT_WAKE_MESSAGE
+  });
 
   await harness.setScenario({ responses: [{ type: "normal", text: "סיימתי" }] });
   await harness.page.evaluate(() => window.__sequenceRunner.startWithTask("SECOND_TASK"));
@@ -47,6 +75,10 @@ test("restart fully resets a completed runner for a second task", async ({ harne
   const state = await harness.runnerState();
   expect(state.completedResponseCount).toBe(1);
   expect(state.taskMode).toBe("new");
+  expect(state.longWaitWake).toEqual({
+    afterMinutes: 5,
+    message: DEFAULT_WAKE_MESSAGE
+  });
 });
 
 test("step limit stops after the completed response and before another send", async ({ harness }) => {
