@@ -36,6 +36,19 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
+      - name: Repair temporary patcher syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply-compact-opening-contract.mjs')
+          text = path.read_text()
+          old = 'expect(prompt, `missing semantic topic: ${topic}`).toContain(topic);'
+          new = 'expect(prompt, "missing semantic topic: " + topic).toContain(topic);'
+          if old not in text:
+              raise SystemExit('Expected temporary patcher line not found')
+          path.write_text(text.replace(old, new))
+          PY
+
       - name: Apply compact contract
         run: node scripts/apply-compact-opening-contract.mjs
 
