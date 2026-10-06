@@ -352,6 +352,8 @@ The panel body must scroll internally instead of growing to cover most of the vi
 
 The panel reports operational chat/run metrics and allows a safe step limit to be configured either as an absolute runner-response number or as N additional responses from the current point.
 
+Before adding or repositioning any management-panel control, explicitly choose its location by user utility and expected frequency of use. Keep high-value operational information and frequent actions near the top; place occasional configuration lower; place exceptional/testing controls near the bottom; keep diagnostics last unless there is a stronger concrete usability reason. Do not insert a new control near the top merely because that is the easiest code location. Preserve the current practical hierarchy: start configuration, live metrics, intermediate-message controls, run limits, long-running-response test/wake configuration, then diagnostics.
+
 A step limit is a boundary between completed responses. Never implement it by interrupting a response that is currently generating.
 
 Changing or clearing the limit during a run must not create duplicate sends or violate the one-send/one-turn invariant.
@@ -505,6 +507,7 @@ Important behavioral cases include:
 - the pending automatic send resumes after the composer becomes empty and ChatGPT is idle
 - an intermediate message scheduled after N responses is injected at the correct boundary
 - a due intermediate message takes precedence over the ordinary completion marker
+- management-panel sections preserve the intended utility order, with metrics and intermediate messages above occasional/test controls and diagnostics last
 - the explicit step limit takes precedence over intermediate messages
 - a valid handoff marker block is parsed only when it is complete and at the end of the response
 - a response with `סיימתי` immediately before a valid final handoff block performs the handoff instead of stopping

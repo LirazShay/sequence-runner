@@ -228,7 +228,7 @@ The runner now includes a small floating management panel.
 
 It can be dragged around the page, minimized, scrolled internally and resized from its lower-left resize handle. Position, size and minimized state are persisted in browser local storage.
 
-The default panel size is intentionally compact so it does not cover most of the conversation. The header remains outside the scrolling body, while the controls and metrics scroll inside the panel when needed.
+The default panel size is intentionally compact so it does not cover most of the conversation. The header remains outside the scrolling body, while the controls and metrics scroll inside the panel when needed. Panel sections are ordered by practical usefulness rather than implementation history: start configuration and live metrics stay high, intermediate-message controls remain prominent, run limits follow, the long-running-response test/wake configuration sits near the bottom, and diagnostics are last.
 
 The panel exposes current, DOM-observable chat metrics:
 
