@@ -51,6 +51,38 @@ test("valid handoff opens a fresh regular chat and continues with a wrapped new-
   expect(sends[1].at).toBeGreaterThanOrEqual(ready.at);
 });
 
+test("handoff reads the authoritative full assistant selection instead of a later markdown fragment", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      {
+        type: "normal",
+        wrapper: "search-unit",
+        text: handoffResponse("FULL_SELECTION_HANDOFF"),
+        extraMarkdownText: "Auxiliary markdown fragment"
+      },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE");
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toContain("FULL_SELECTION_HANDOFF");
+  expect(sent[1]).not.toBe("תמשיך לשלב הבא");
+
+  const events = await harness.events();
+  expect(events.some((event) => event.type === "assistant-extra-markdown")).toBeTruthy();
+  expect(events.some((event) => event.type === "new-chat-click")).toBeTruthy();
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  const firstCompletion = log.find((entry) => entry.event === "response-complete");
+  expect(firstCompletion?.handoffRequested).toBe(true);
+  expect(firstCompletion?.handoffValid).toBe(true);
+});
+
 test("project handoff uses the exact project New Chat action and stays in the project route", async ({ harness }) => {
   await harness.load("http://mock.local/g/g-p-mock/c/start");
   await harness.setScenario({

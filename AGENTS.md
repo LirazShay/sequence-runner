@@ -240,7 +240,7 @@ Do not leave a turn in `WAITING_FOR_RESPONSE` when its final response UI is alre
 
 If the tracked turn explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. Treat generation as terminated. If a queued intermediate message is already due, it may safely supersede that terminated cycle; otherwise stop with a clear diagnosable error.
 
-Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper.
+Assistant-content detection must retain fallbacks for the assistant search-unit and selection-message containers, not only the preferred Markdown wrapper. When a selection-message container is available, treat it as the authoritative full Assistant response before considering individual Markdown fragments; a later auxiliary Markdown fragment must never hide an earlier handoff block from evaluation.
 
 Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace DOM nodes.
 
@@ -311,8 +311,10 @@ The runner must not assume that the task was already stated in the chat.
 The management panel supports:
 
 - existing-context mode, which preserves the original continuation behavior
+- existing-ready mode, shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer start mode, not a checkbox, and sends only `תמשיך לשלב הבא` as the first runner send
 - new-task mode, which embeds user-supplied free-form task text into the first runner prompt
-- an explicit `דלג על הודעה ראשונה` option for existing-context mode; when selected, assume the full opening contract already exists and send only `תמשיך לשלב הבא` as the first runner send. Do not apply this option to new-task mode and do not let it alter automatic handoff behavior.
+
+Do not let the existing-ready start mode alter automatic handoff behavior.
 
 Loading the script should prepare the runner and panel, not automatically send the first prompt. Sending begins only after an explicit Start action or an equivalent public API call.
 

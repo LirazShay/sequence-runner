@@ -7,7 +7,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 6 : undefined,
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
-  globalTimeout: process.env.CI ? 40000 : undefined,
+  globalTimeout: process.env.CI ? 60000 : undefined,
   timeout: 15000,
   expect: {
     timeout: 5000

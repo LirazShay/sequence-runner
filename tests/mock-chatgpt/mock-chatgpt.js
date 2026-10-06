@@ -258,6 +258,20 @@
           endGeneration();
         }
 
+        if (response.extraMarkdownText != null) {
+          const extra = document.createElement("div");
+          extra.setAttribute(
+            "data-markdown-text-style",
+            "assistant-message"
+          );
+          extra.textContent = String(response.extraMarkdownText);
+          turn.appendChild(extra);
+          record("assistant-extra-markdown", {
+            turnKey: turn.getAttribute("data-turn-key"),
+            text: normalize(extra.textContent)
+          });
+        }
+
         addRegenerate(turn);
         record("assistant-final-ui", {
           turnKey: turn.getAttribute("data-turn-key"),
