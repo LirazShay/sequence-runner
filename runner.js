@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.31";
+    const VERSION = "3.32";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -461,56 +461,44 @@
         ).test(lastLine);
     }
 
+    function getWorkInstruction(workStyle) {
+        return normalizeWorkStyle(workStyle) === "deep"
+            ? "בכל פעם שאכתוב 'תמשיך לשלב הבא', התקדם שלב משמעותי אחד: בצע ברצף מקטע עבודה משמעותי, כולל תתי־שלבים, בדיקות ותיקונים נחוצים, עד יעד ברור ומאומת. חלק את העבודה למקטעים לפי מטרות ותוצאות, אל תעצור אחרי פעולה טכנית קטנה, והעדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים."
+            : "בכל פעם שאכתוב 'תמשיך לשלב הבא', המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית. חלק את העבודה למקטעים לפי מטרות ותוצאות, השלם ואמת יעד ברור בכל מקטע; אל תכפה מקטע גדול כשאין צורך ואל תעצור אחרי פעולה טכנית קטנה, והעדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים.";
+    }
+
+    function getCheckpointInstruction() {
+        return "סיים מקטע בנקודת checkpoint טבעית: לאחר תוצאה משמעותית שניתן לאמת, כשהשלב הבא הוא סוג עבודה שונה מהותית, או לפני פעולה בעלת סיכון משמעותי. החלטה משמעותית מחייבת עצירה למשתמש רק במצב Collaborative.";
+    }
+
+    function getDecisionInstruction(decisionMode) {
+        return normalizeDecisionMode(decisionMode) === "collaborative"
+            ? "במצב Collaborative, כשנדרשת החלטה משמעותית עם כמה חלופות סבירות שמשפיעות מהותית על ההמשך, עצור בנקודת checkpoint, הצג בקצרה אפשרויות והמלצה וחכה להכרעת המשתמש. אל תעצור על החלטות שגרתיות או כאלה שניתן להסיק בבטחה."
+            : "במצב Autonomous, קבל בעצמך את ההחלטה הסבירה הטובה ביותר לפי המטרה והמידע והמשך; תעד בקצרה החלטות מהותיות כשמועיל. שאל רק אם חסר מידע חיוני שלא ניתן להסיק באופן סביר או נדרש אישור מפורש.";
+    }
+
+    function getHandoffPolicyInstruction(workStyle) {
+        return normalizeWorkStyle(workStyle) === "deep"
+            ? "במצב Deep, תכנן מקטעים משמעותיים שמתאימים לצ'אט אחד וקבע נקודות מעבר טבעיות: מה הצ'אט הנוכחי צריך לסיים ומה הצ'אט הבא אמור לקחת. לאחר מקטע משמעותי העדף מעבר אם ההמשך הוא שלב חדש, נושא נפרד, או שצ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך."
+            : "עבור לצ'אט חדש כשהמעבר תוכנן מראש או כשצ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך; אל תעבור רק משום שהסתיים שלב רגיל.";
+    }
+
     function getRunnerControlLines(
         startInstruction,
         workStyle,
         decisionMode
     ) {
-        const style =
-            normalizeWorkStyle(workStyle);
-
-        const decisions =
-            normalizeDecisionMode(decisionMode);
-
-        const workInstruction =
-            style === "deep"
-                ? "בכל פעם שאכתוב 'תמשיך לשלב הבא', התקדם שלב משמעותי אחד. בתוך השלב בצע ברצף מקטע עבודה משמעותי, כולל כל תתי־השלבים, הבדיקות והתיקונים הקשורים שנחוצים כדי להשיג יעד ברור ולאמת אותו. אל תעצור אחרי פעולה טכנית קטנה בלבד."
-                : "בכל פעם שאכתוב 'תמשיך לשלב הבא', המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית. אל תכפה מקטע גדול כשאין בכך צורך, אך גם אל תעצור אחרי פעולה טכנית קטנה אם עדיין לא הושג יעד ברור שניתן לאמת.";
-
-        const segmentInstruction =
-            "חלק את העבודה למקטעים לפי מטרות ותוצאות, לא לפי פעולות טכניות קטנות. בתוך כל מקטע השלם את כל העבודה הדרושה להשגת יעד ברור ואמת את התוצאה לפני עצירה. בדרך כלל העדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים.";
-
-        const checkpointInstruction =
-            "סיים מקטע בנקודת checkpoint טבעית: לאחר שהושגה תוצאה משמעותית שניתן לאמת, כאשר השלב הבא הוא סוג עבודה שונה מהותית, או לפני פעולה בעלת סיכון משמעותי. החלטה משמעותית מחייבת עצירה למשתמש רק כאשר מצב ההחלטות הוא Collaborative.";
-
-        const decisionInstruction =
-            decisions === "collaborative"
-                ? "במצב Collaborative, כאשר נדרשת החלטה משמעותית שיש לה כמה חלופות סבירות והיא תשפיע מהותית על ההמשך, עצור בנקודת checkpoint, הצג בקצרה את האפשרויות ואת המלצתך, וחכה להכרעת המשתמש. אל תעצור על החלטות שגרתיות או פרטים טכניים שניתן להסיק בבטחה."
-                : "במצב Autonomous, כאשר נדרשת החלטה משמעותית, קבל בעצמך את ההחלטה הסבירה הטובה ביותר לפי המטרה והמידע הקיים והמשך בעבודה. תעד בקצרה החלטות מהותיות כאשר הדבר מועיל. עצור לשאלה רק אם חסר מידע חיוני שאי אפשר להסיק באופן סביר או אם נדרש אישור מפורש מהמשתמש.";
-
-        const handoffInstruction =
-            style === "deep"
-                ? "במצב Deep, תכנן את העבודה במקטעים משמעותיים שמתאימים לצ'אט אחד. קבע נקודות מעבר טבעיות: מה הצ'אט הנוכחי צריך לסיים ומה הצ'אט הבא אמור לקחת. כאשר מקטע משמעותי הושלם והמשך העבודה עובר לשלב חדש, לנושא נפרד, או שצ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך — העדף לעבור לצ'אט חדש."
-                : "עבור לצ'אט חדש כאשר המעבר תוכנן מראש, או כאשר צ'אט חדש ישפר משמעותית את הפוקוס או איכות ההמשך. אל תעבור רק משום שהסתיים שלב רגיל.";
-
         return [
-            workInstruction,
+            getWorkInstruction(workStyle),
             "",
-            segmentInstruction,
+            getCheckpointInstruction(),
             "",
-            checkpointInstruction,
+            getDecisionInstruction(decisionMode),
             "",
-            decisionInstruction,
-            "",
-            "אל תכתוב 'סיימתי' בסוף שלב רגיל.",
-            "",
-            "אם כל המשימה הכוללת הסתיימה ואין עוד עבודה להמשך, סיים את התשובה בשורה:",
+            "אל תכתוב 'סיימתי' בסוף שלב רגיל. אם כל המשימה הכוללת הסתיימה ואין עוד עבודה להמשך, סיים בשורה נפרדת:",
             "סיימתי",
             "",
-            "אם העבודה בצ'אט הנוכחי הסתיימה אבל המשימה צריכה להמשיך בצ'אט חדש, כתוב:",
-            "סיימתי",
-            "ומיד אחריו:",
-            "",
+            "אם העבודה בצ'אט הנוכחי הסתיימה אבל המשימה ממשיכה בצ'אט חדש, כתוב סיימתי ואז, כתוכן האחרון בתשובה:",
             CONFIG.HANDOFF_OUTER_START,
             "בשלב זה מומלץ לעבור לצ'אט חדש.",
             CONFIG.HANDOFF_PROMPT_START,
@@ -518,18 +506,47 @@
             CONFIG.HANDOFF_PROMPT_END,
             CONFIG.HANDOFF_OUTER_END,
             "",
-            handoffInstruction,
+            getHandoffPolicyInstruction(workStyle),
             "",
-            "בעת יצירת NEXT_CHAT_PROMPT, העדף שמירת כל מידע מתמשך במקור אמת חיצוני ומתועד, ועדכן אותו לפני המעבר אם חסר בו מידע חשוב. בפרומפט עצמו כלול רק מידע חיוני שלא ניתן לשחזר משם.",
-            "",
-            "בדיקת המפתח: האם צ'אט חדש שיקבל את NEXT_CHAT_PROMPT ויפעל לפיו יוכל להגיע למצב העדכני ולהמשיך נכון בלי להכיר את היסטוריית הצ'אט הזה?",
-            "",
-            "אם לא — קודם נסה לתעד או לעדכן את המידע החסר במקור האמת. רק מידע שלא ניתן לשמור או לשחזר משם צריך להיכלל בפרומפט.",
+            "בעת יצירת NEXT_CHAT_PROMPT, העדף מקור אמת חיצוני ומתועד: עדכן אותו לפני המעבר אם חסר בו מידע חשוב, ובפרומפט כלול רק מידע חיוני שלא ניתן לשחזר ממנו.",
+            "בדיקת המפתח: האם צ'אט חדש שיקבל את NEXT_CHAT_PROMPT יוכל להגיע למצב העדכני ולהמשיך נכון בלי להכיר את היסטוריית הצ'אט הזה? אם לא, קודם נסה לתעד או לעדכן את המידע החסר במקור האמת; רק מה שלא ניתן לשמור או לשחזר משם ייכלל בפרומפט.",
             "",
             "אל תשתמש בסימוני המעבר ואל תזכיר אותם אלא כאשר באמת עוברים לצ'אט חדש.",
             "",
             startInstruction
         ];
+    }
+
+    function buildCompactExistingReadyPrompt(
+        workStyle,
+        decisionMode
+    ) {
+        const style = normalizeWorkStyle(workStyle);
+        const decisions = normalizeDecisionMode(decisionMode);
+        const workInstruction =
+            style === "deep"
+                ? "Deep: בצע שלב משמעותי שלם עד תוצאה ברורה ומאומתת, כולל בדיקות ותיקונים נחוצים."
+                : "Steady: התקדם עד checkpoint טבעי עם תוצאה ברורה ומאומתת; אל תעצור אחרי פעולה טכנית קטנה.";
+        const decisionInstruction =
+            decisions === "collaborative"
+                ? "Collaborative: בהחלטה משמעותית עם כמה חלופות סבירות עצור, הצג אפשרויות והמלצה וחכה להכרעת המשתמש."
+                : "Autonomous: קבל החלטות סבירות והמשך; שאל רק אם חסר מידע חיוני שלא ניתן להסיק או נדרש אישור.";
+
+        return [
+            "תמשיך לשלב הבא.",
+            workInstruction,
+            decisionInstruction,
+            "אל תכתוב 'סיימתי' בסוף שלב רגיל. אם כל המשימה הסתיימה ואין עוד עבודה, סיים בשורה נפרדת:",
+            "סיימתי",
+            "אם הצ'אט הזה הסתיים אבל המשימה ממשיכה בצ'אט חדש, כתוב סיימתי ואז בסוף:",
+            CONFIG.HANDOFF_OUTER_START,
+            "בשלב זה מומלץ לעבור לצ'אט חדש.",
+            CONFIG.HANDOFF_PROMPT_START,
+            "ההודעה הקצרה ביותר שמספיקה לצ'אט החדש להמשיך נכון.",
+            CONFIG.HANDOFF_PROMPT_END,
+            CONFIG.HANDOFF_OUTER_END,
+            "השתמש במעבר רק כשבאמת צריך צ'אט חדש; הודעת הפתיחה הקודמת נשארת בתוקף."
+        ].join("\n");
     }
 
     function buildFirstPrompt(
@@ -538,12 +555,8 @@
         workStyle,
         decisionMode
     ) {
-        const style =
-            normalizeWorkStyle(workStyle);
-
-        const decisions =
-            normalizeDecisionMode(decisionMode);
-
+        const style = normalizeWorkStyle(workStyle);
+        const decisions = normalizeDecisionMode(decisionMode);
         const startInstruction =
             mode === "new"
                 ? "עכשיו, התחל לבצע את המשימה והתקדם לשלב הראשון."
@@ -578,8 +591,7 @@
     }
 
     function buildHandoffPrompt(nextChatPrompt) {
-        const prompt =
-            normalizeText(nextChatPrompt);
+        const prompt = normalizeText(nextChatPrompt);
 
         if (!prompt) {
             throw new Error(
@@ -5126,7 +5138,10 @@
 
         const firstPrompt =
             shouldSkipFirstMessage
-                ? CONFIG.REGULAR_PROMPT
+                ? buildCompactExistingReadyPrompt(
+                      style,
+                      decisions
+                  )
                 : buildFirstPrompt(
                       mode,
                       taskText,

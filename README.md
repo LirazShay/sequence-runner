@@ -21,7 +21,7 @@ The runner turns a repeated manual workflow:
 
 The current configuration uses:
 
-- Initial instruction: a multi-step continuation contract.
+- Initial instruction: a compact continuation/completion/handoff contract that preserves the full original semantics without repeated prose; existing-ready uses an even shorter safety contract.
 - Continuation instruction: `תמשיך לשלב הבא`
 - Completion marker: `סיימתי`
 
@@ -325,10 +325,10 @@ The runner no longer has to assume that the task was already described earlier i
 The control panel offers three start modes:
 
 - **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion and new-chat handoff contract and asks the assistant to continue.
-- **Existing task + opening message already sent** — assumes the full opening contract is already present in the conversation and sends only `תמשיך לשלב הבא` as the first runner send.
+- **Existing task + opening message already sent** — assumes the full opening contract is already present, but still sends a very short first safety contract. It starts with `תמשיך לשלב הבא`, preserves the selected work/decision mode, reinforces `סיימתי` and handoff semantics, and then returns to the plain continuation prompt on later cycles.
 - **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion and handoff contract, then asks the assistant to begin the first step.
 
-The opening-message-already-sent choice is a start mode, not a separate checkbox. It affects only run startup; automatic handoff behavior is unchanged. Programmatic callers may still request the same behavior through the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.
+The opening-message-already-sent choice is a start mode, not a separate checkbox. Its first runner message is intentionally compact rather than only `תמשיך לשלב הבא`: this prevents a completed task from omitting `סיימתי` and preserves handoff plus the selected work/decision semantics. Later cycles still use only `תמשיך לשלב הבא`. Programmatic callers may request the same compact startup through the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.
 
 The runner waits for an explicit Start action from the panel. It does not automatically send the first prompt merely because the script was loaded.
 

@@ -266,7 +266,7 @@ After programmatic insertion, verify the actual composer contents before clickin
 
 ### Automatic chat handoff
 
-The first runner prompt installs a machine-readable handoff contract.
+The first runner prompt installs a machine-readable handoff contract. Keep the full opening contract concise by removing repetition, never by dropping a semantic topic. Regression coverage must protect the original work-style, segmentation, checkpoint, decision, completion, handoff, rollover and durable-source/NEXT_CHAT_PROMPT rules. The existing-ready mode may use a smaller first safety contract because the full opening already exists in chat, but it must still reinforce completion and handoff semantics.
 
 A valid handoff response ends with:
 
@@ -311,7 +311,7 @@ The runner must not assume that the task was already stated in the chat.
 The management panel supports:
 
 - existing-context mode, which preserves the original continuation behavior
-- existing-ready mode, shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer start mode, not a checkbox, and sends only `תמשיך לשלב הבא` as the first runner send
+- existing-ready mode, shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer start mode, not a checkbox, and sends a compact first safety contract that starts with `תמשיך לשלב הבא`, reinforces completion/handoff semantics and preserves the selected work/decision mode; later cycles use the plain continuation prompt
 - new-task mode, which embeds user-supplied free-form task text into the first runner prompt
 
 Do not let the existing-ready start mode alter automatic handoff behavior.
