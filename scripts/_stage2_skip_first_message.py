@@ -1,0 +1,293 @@
+from pathlib import Path
+
+
+def replace_once(text, old, new, label):
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected exactly one match, found {count}")
+    return text.replace(old, new, 1)
+
+
+runner = Path("runner.js")
+text = runner.read_text(encoding="utf-8")
+
+text = replace_once(
+    text,
+    '    const VERSION = "3.27";',
+    '    const VERSION = "3.28";',
+    "runner version",
+)
+
+text = replace_once(
+    text,
+    "        '<option value=\"new\">משימה חדשה — שלב אותה בהודעה הראשונה</option>',\n        '</select>',\n        '<select data-input=\"work-style\"",
+    "        '<option value=\"new\">משימה חדשה — שלב אותה בהודעה הראשונה</option>',\n        '</select>',\n        '<label data-role=\"skip-first-message-row\" style=\"display:flex;align-items:center;gap:7px;padding:1px 1px 7px;cursor:pointer\">',\n        '<input data-input=\"skip-first-message\" type=\"checkbox\" style=\"margin:0\">',\n        '<span>דלג על הודעה ראשונה</span>',\n        '</label>',\n        '<select data-input=\"work-style\"",
+    "skip-first-message UI",
+)
+
+text = replace_once(
+    text,
+    '    let selectedTaskMode = "existing";\n    let selectedTaskText = "";\n    let selectedWorkStyle = "steady";',
+    '    let selectedTaskMode = "existing";\n    let selectedTaskText = "";\n    let selectedSkipFirstMessage = false;\n    let selectedWorkStyle = "steady";',
+    "skip-first-message state",
+)
+
+text = replace_once(
+    text,
+    "        const taskTextArea = panel.querySelector(\n            '[data-input=\"task-text\"]'\n        );\n\n        const workStyleSelect = panel.querySelector(",
+    "        const taskTextArea = panel.querySelector(\n            '[data-input=\"task-text\"]'\n        );\n\n        const skipFirstMessageInput = panel.querySelector(\n            '[data-input=\"skip-first-message\"]'\n        );\n\n        const workStyleSelect = panel.querySelector(",
+    "setup skip input",
+)
+
+old_change = '''        taskModeSelect?.addEventListener(
+            "change",
+            function () {
+                if (taskTextArea) {
+                    taskTextArea.style.display =
+                        taskModeSelect.value === "new"
+                            ? ""
+                            : "none";
+                }
+            }
+        );'''
+new_change = '''        const syncStartModeControls = function () {
+            const isNewTask =
+                taskModeSelect?.value === "new";
+
+            if (taskTextArea) {
+                taskTextArea.style.display =
+                    isNewTask ? "" : "none";
+            }
+
+            if (skipFirstMessageInput) {
+                skipFirstMessageInput.disabled =
+                    isNewTask;
+
+                if (isNewTask) {
+                    skipFirstMessageInput.checked =
+                        false;
+                }
+            }
+        };
+
+        taskModeSelect?.addEventListener(
+            "change",
+            syncStartModeControls
+        );
+
+        syncStartModeControls();'''
+text = replace_once(text, old_change, new_change, "task mode sync")
+
+text = replace_once(
+    text,
+    '                    workStyleSelect?.value || "steady",\n                    decisionModeSelect?.value || "autonomous"\n                ).catch(function (err) {',
+    '                    workStyleSelect?.value || "steady",\n                    decisionModeSelect?.value || "autonomous",\n                    !!skipFirstMessageInput?.checked\n                ).catch(function (err) {',
+    "panel beginRun call",
+)
+
+text = replace_once(
+    text,
+    "        const decisionMode = panel.querySelector(\n            '[data-input=\"decision-mode\"]'\n        );\n\n        const inputs = [",
+    "        const decisionMode = panel.querySelector(\n            '[data-input=\"decision-mode\"]'\n        );\n\n        const skipFirstMessage = panel.querySelector(\n            '[data-input=\"skip-first-message\"]'\n        );\n\n        const inputs = [",
+    "reset skip input lookup",
+)
+
+text = replace_once(
+    text,
+    '        if (decisionMode) {\n            decisionMode.value = "autonomous";\n        }\n\n        if (taskText) {',
+    '        if (decisionMode) {\n            decisionMode.value = "autonomous";\n        }\n\n        if (skipFirstMessage) {\n            skipFirstMessage.checked = false;\n            skipFirstMessage.disabled = false;\n        }\n\n        if (taskText) {',
+    "reset skip input value",
+)
+
+text = replace_once(
+    text,
+    '        selectedTaskMode = "existing";\n        selectedTaskText = "";\n        selectedWorkStyle = "steady";',
+    '        selectedTaskMode = "existing";\n        selectedTaskText = "";\n        selectedSkipFirstMessage = false;\n        selectedWorkStyle = "steady";',
+    "restart skip state",
+)
+
+text = replace_once(
+    text,
+    '''    async function beginRun(
+        mode,
+        taskText,
+        workStyle,
+        decisionMode
+    ) {''',
+    '''    async function beginRun(
+        mode,
+        taskText,
+        workStyle,
+        decisionMode,
+        skipFirstMessage
+    ) {''',
+    "beginRun signature",
+)
+
+text = replace_once(
+    text,
+    '''        const firstPrompt =
+            buildFirstPrompt(
+                mode,
+                taskText,
+                style,
+                decisions
+            );''',
+    '''        const shouldSkipFirstMessage =
+            mode !== "new" &&
+            !!skipFirstMessage;
+
+        const firstPrompt =
+            shouldSkipFirstMessage
+                ? CONFIG.REGULAR_PROMPT
+                : buildFirstPrompt(
+                      mode,
+                      taskText,
+                      style,
+                      decisions
+                  );''',
+    "beginRun first prompt",
+)
+
+text = replace_once(
+    text,
+    '''        selectedTaskText =
+            selectedTaskMode === "new"
+                ? normalizeText(taskText)
+                : "";
+
+        selectedWorkStyle = style;''',
+    '''        selectedTaskText =
+            selectedTaskMode === "new"
+                ? normalizeText(taskText)
+                : "";
+
+        selectedSkipFirstMessage =
+            shouldSkipFirstMessage;
+
+        selectedWorkStyle = style;''',
+    "selected skip state",
+)
+
+text = replace_once(
+    text,
+    '''        record("run-started", {
+            taskMode: selectedTaskMode,
+            workStyle: selectedWorkStyle,''',
+    '''        record("run-started", {
+            taskMode: selectedTaskMode,
+            skipFirstMessage:
+                selectedSkipFirstMessage,
+            workStyle: selectedWorkStyle,''',
+    "run-started skip field",
+)
+
+state_pattern = '''                runStarted,
+                taskMode: selectedTaskMode,
+                workStyle: selectedWorkStyle,'''
+state_replacement = '''                runStarted,
+                taskMode: selectedTaskMode,
+                skipFirstMessage:
+                    selectedSkipFirstMessage,
+                workStyle: selectedWorkStyle,'''
+state_count = text.count(state_pattern)
+if state_count != 2:
+    raise SystemExit(f"state/diagnostic skip field: expected 2 matches, found {state_count}")
+text = text.replace(state_pattern, state_replacement)
+
+text = replace_once(
+    text,
+    '''        startExistingContext: function (
+            workStyle,
+            decisionMode
+        ) {
+            return beginRun(
+                "existing",
+                "",
+                workStyle,
+                decisionMode
+            );''',
+    '''        startExistingContext: function (
+            workStyle,
+            decisionMode,
+            skipFirstMessage
+        ) {
+            return beginRun(
+                "existing",
+                "",
+                workStyle,
+                decisionMode,
+                skipFirstMessage
+            );''',
+    "public startExistingContext",
+)
+
+runner.write_text(text, encoding="utf-8")
+
+core = Path("tests/e2e/core.spec.js")
+tests = core.read_text(encoding="utf-8")
+anchor = '''test("new-task mode embeds the task into the first runner prompt", async ({ harness }) => {'''
+new_tests = '''test("skip-first-message option sends only the regular continuation prompt", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [{ type: "normal", text: "סיימתי" }]
+  });
+
+  const row = harness.page.locator('[data-role="skip-first-message-row"]');
+  const skipFirstMessage = harness.page.locator('[data-input="skip-first-message"]');
+  await expect(row).toContainText("דלג על הודעה ראשונה");
+  await expect(skipFirstMessage).toBeEnabled();
+  await expect(skipFirstMessage).not.toBeChecked();
+  await skipFirstMessage.check();
+
+  await harness.page.locator('[data-action="start-run"]').click();
+  await harness.waitForState("DONE");
+
+  expect(await harness.sentMessages()).toEqual(["תמשיך לשלב הבא"]);
+  const state = await harness.runnerState();
+  expect(state.skipFirstMessage).toBe(true);
+});
+
+test("new-task mode disables and clears skip-first-message", async ({ harness }) => {
+  await harness.load();
+
+  const taskMode = harness.page.locator('[data-input="task-mode"]');
+  const skipFirstMessage = harness.page.locator('[data-input="skip-first-message"]');
+
+  await skipFirstMessage.check();
+  await taskMode.selectOption("new");
+
+  await expect(skipFirstMessage).toBeDisabled();
+  await expect(skipFirstMessage).not.toBeChecked();
+});
+
+'''
+if tests.count(anchor) != 1:
+    raise SystemExit("core test anchor not found exactly once")
+tests = tests.replace(anchor, new_tests + anchor, 1)
+if tests.count('version: "3.27"') != 1:
+    raise SystemExit("Expected one core version assertion")
+tests = tests.replace('version: "3.27"', 'version: "3.28"', 1)
+core.write_text(tests, encoding="utf-8")
+
+diagnostic = Path("tests/e2e/diagnostic.spec.js")
+diagnostic_text = diagnostic.read_text(encoding="utf-8")
+if diagnostic_text.count('"3.27"') != 2:
+    raise SystemExit("Expected exactly two diagnostic version assertions")
+diagnostic.write_text(diagnostic_text.replace('"3.27"', '"3.28"'), encoding="utf-8")
+
+readme = Path("README.md")
+readme_text = readme.read_text(encoding="utf-8")
+readme_anchor = "- **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion and new-chat handoff contract and asks the assistant to continue.\n- **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion and handoff contract, then asks the assistant to begin the first step.\n"
+readme_replacement = readme_anchor + "\nThe existing-context start screen also exposes **דלג על הודעה ראשונה**. When checked, the runner assumes the full opening contract is already present in the conversation and sends only `תמשיך לשלב הבא` as its first send. The option is disabled and cleared in new-task mode, and it affects only run startup; automatic handoff behavior is unchanged. Programmatic callers may pass the same choice as the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.\n"
+if readme_text.count(readme_anchor) != 1:
+    raise SystemExit("README start-mode anchor not found exactly once")
+readme.write_text(readme_text.replace(readme_anchor, readme_replacement, 1), encoding="utf-8")
+
+agents = Path("AGENTS.md")
+agents_text = agents.read_text(encoding="utf-8")
+agents_anchor = "- existing-context mode, which preserves the original continuation behavior\n- new-task mode, which embeds user-supplied free-form task text into the first runner prompt\n"
+agents_replacement = agents_anchor + "- an explicit `דלג על הודעה ראשונה` option for existing-context mode; when selected, assume the full opening contract already exists and send only `תמשיך לשלב הבא` as the first runner send. Do not apply this option to new-task mode and do not let it alter automatic handoff behavior.\n"
+if agents_text.count(agents_anchor) != 1:
+    raise SystemExit("AGENTS start-mode anchor not found exactly once")
+agents.write_text(agents_text.replace(agents_anchor, agents_replacement, 1), encoding="utf-8")
