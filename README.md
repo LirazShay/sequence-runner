@@ -304,6 +304,7 @@ Behavior:
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition.
 - The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.
+- That first handoff message also includes a chat-title instruction: when the task contains a clear chat number, use `צ'אט N` with that number; otherwise use a short descriptive title based on the work the fresh chat is planned to perform. This instruction is added only to chats opened automatically by handoff.
 - Runner counters, step limits and queued messages remain in the same in-page runner session across the SPA navigation.
 - A malformed handoff marker block stops with an error instead of silently continuing.
 - Priority at a response boundary remains: explicit step limit, malformed-handoff safety check, due intermediate message, valid handoff, normal completion, ordinary continuation.
@@ -325,6 +326,8 @@ The control panel offers two start modes:
 
 - **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion and new-chat handoff contract and asks the assistant to continue.
 - **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion and handoff contract, then asks the assistant to begin the first step.
+
+The existing-context start screen also exposes **דלג על הודעה ראשונה**. When checked, the runner assumes the full opening contract is already present in the conversation and sends only `תמשיך לשלב הבא` as its first send. The option is disabled and cleared in new-task mode, and it affects only run startup; automatic handoff behavior is unchanged. Programmatic callers may pass the same choice as the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.
 
 The runner waits for an explicit Start action from the panel. It does not automatically send the first prompt merely because the script was loaded.
 

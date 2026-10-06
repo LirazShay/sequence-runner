@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.26";
+    const VERSION = "3.28";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -125,6 +125,10 @@
         '<option value="existing">המשימה כבר ניתנה בצ׳אט</option>',
         '<option value="new">משימה חדשה — שלב אותה בהודעה הראשונה</option>',
         '</select>',
+        '<label data-role="skip-first-message-row" style="display:flex;align-items:center;gap:7px;padding:1px 1px 7px;cursor:pointer">',
+        '<input data-input="skip-first-message" type="checkbox" style="margin:0">',
+        '<span>דלג על הודעה ראשונה</span>',
+        '</label>',
         '<select data-input="work-style" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
         '<option value="steady">Steady — התקדמות טבעית</option>',
         '<option value="deep">Deep — עבודה עמוקה ומקטעים משמעותיים</option>',
@@ -230,6 +234,7 @@
     let runStarted = false;
     let selectedTaskMode = "existing";
     let selectedTaskText = "";
+    let selectedSkipFirstMessage = false;
     let selectedWorkStyle = "steady";
     let selectedDecisionMode = "autonomous";
     let runnerStartedAt = null;
@@ -471,9 +476,16 @@
             );
         }
 
+        const chatTitleInstruction =
+            "שם הצ'אט: אם מופיע במשימה מספר צ'אט ברור, שם הצ'אט צריך להיות \"צ'אט N\" לפי אותו מספר. אם אין מספר צ'אט ברור, תן לצ'אט שם קצר ותיאורי שמסכם את מה שהצ'אט הזה מתוכנן לבצע.";
+
         return buildFirstPrompt(
             "new",
-            prompt,
+            [
+                prompt,
+                "",
+                chatTitleInstruction
+            ].join("\n"),
             selectedWorkStyle,
             selectedDecisionMode
         );
@@ -2363,6 +2375,8 @@
                 pendingAutoSendLocked,
                 runStarted,
                 taskMode: selectedTaskMode,
+                skipFirstMessage:
+                    selectedSkipFirstMessage,
                 workStyle: selectedWorkStyle,
                 decisionMode: selectedDecisionMode,
                 currentCycle: diagnosticCycleSnapshot(currentCycle),
@@ -2515,6 +2529,10 @@
             '[data-input="task-text"]'
         );
 
+        const skipFirstMessageInput = panel.querySelector(
+            '[data-input="skip-first-message"]'
+        );
+
         const workStyleSelect = panel.querySelector(
             '[data-input="work-style"]'
         );
@@ -2523,17 +2541,32 @@
             '[data-input="decision-mode"]'
         );
 
-        taskModeSelect?.addEventListener(
-            "change",
-            function () {
-                if (taskTextArea) {
-                    taskTextArea.style.display =
-                        taskModeSelect.value === "new"
-                            ? ""
-                            : "none";
+        const syncStartModeControls = function () {
+            const isNewTask =
+                taskModeSelect?.value === "new";
+
+            if (taskTextArea) {
+                taskTextArea.style.display =
+                    isNewTask ? "" : "none";
+            }
+
+            if (skipFirstMessageInput) {
+                skipFirstMessageInput.disabled =
+                    isNewTask;
+
+                if (isNewTask) {
+                    skipFirstMessageInput.checked =
+                        false;
                 }
             }
+        };
+
+        taskModeSelect?.addEventListener(
+            "change",
+            syncStartModeControls
         );
+
+        syncStartModeControls();
 
         panel.querySelector(
             '[data-action="start-run"]'
@@ -2544,7 +2577,8 @@
                     taskModeSelect?.value || "existing",
                     taskTextArea?.value || "",
                     workStyleSelect?.value || "steady",
-                    decisionModeSelect?.value || "autonomous"
+                    decisionModeSelect?.value || "autonomous",
+                    !!skipFirstMessageInput?.checked
                 ).catch(function (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -3321,6 +3355,10 @@
             '[data-input="decision-mode"]'
         );
 
+        const skipFirstMessage = panel.querySelector(
+            '[data-input="skip-first-message"]'
+        );
+
         const inputs = [
             '[data-input="injection-text"]',
             '[data-input="injection-after"]',
@@ -3338,6 +3376,11 @@
 
         if (decisionMode) {
             decisionMode.value = "autonomous";
+        }
+
+        if (skipFirstMessage) {
+            skipFirstMessage.checked = false;
+            skipFirstMessage.disabled = false;
         }
 
         if (taskText) {
@@ -3386,6 +3429,7 @@
         runStarted = false;
         selectedTaskMode = "existing";
         selectedTaskText = "";
+        selectedSkipFirstMessage = false;
         selectedWorkStyle = "steady";
         selectedDecisionMode = "autonomous";
         runnerStartedAt = null;
@@ -4837,7 +4881,8 @@
         mode,
         taskText,
         workStyle,
-        decisionMode
+        decisionMode,
+        skipFirstMessage
     ) {
         if (stopped) {
             throw new Error(
@@ -4857,13 +4902,19 @@
         const decisions =
             normalizeDecisionMode(decisionMode);
 
+        const shouldSkipFirstMessage =
+            mode !== "new" &&
+            !!skipFirstMessage;
+
         const firstPrompt =
-            buildFirstPrompt(
-                mode,
-                taskText,
-                style,
-                decisions
-            );
+            shouldSkipFirstMessage
+                ? CONFIG.REGULAR_PROMPT
+                : buildFirstPrompt(
+                      mode,
+                      taskText,
+                      style,
+                      decisions
+                  );
 
         selectedTaskMode =
             mode === "new" ? "new" : "existing";
@@ -4873,6 +4924,9 @@
                 ? normalizeText(taskText)
                 : "";
 
+        selectedSkipFirstMessage =
+            shouldSkipFirstMessage;
+
         selectedWorkStyle = style;
         selectedDecisionMode = decisions;
 
@@ -4881,6 +4935,8 @@
 
         record("run-started", {
             taskMode: selectedTaskMode,
+            skipFirstMessage:
+                selectedSkipFirstMessage,
             workStyle: selectedWorkStyle,
             decisionMode: selectedDecisionMode,
             hasTaskText:
@@ -4998,6 +5054,8 @@
                 completedResponseCount,
                 runStarted,
                 taskMode: selectedTaskMode,
+                skipFirstMessage:
+                    selectedSkipFirstMessage,
                 workStyle: selectedWorkStyle,
                 decisionMode: selectedDecisionMode,
                 queuedIntermediateMessages:
@@ -5095,13 +5153,15 @@
             restartRunner,
         startExistingContext: function (
             workStyle,
-            decisionMode
+            decisionMode,
+            skipFirstMessage
         ) {
             return beginRun(
                 "existing",
                 "",
                 workStyle,
-                decisionMode
+                decisionMode,
+                skipFirstMessage
             );
         },
         startWithTask: function (
