@@ -109,9 +109,12 @@ readme = replaceExact(
 );
 fs.writeFileSync("README.md", readme);
 
-for (const path of ["tests/e2e/core.spec.js", "tests/e2e/diagnostic.spec.js"]) {
+for (const [path, expected] of [
+  ["tests/e2e/core.spec.js", 1],
+  ["tests/e2e/diagnostic.spec.js", 2]
+]) {
   let text = fs.readFileSync(path, "utf8");
-  text = replaceExact(text, '"3.33"', '"3.34"', `${path} version`);
+  text = replaceExact(text, '"3.33"', '"3.34"', `${path} version`, expected);
   fs.writeFileSync(path, text);
 }
 
