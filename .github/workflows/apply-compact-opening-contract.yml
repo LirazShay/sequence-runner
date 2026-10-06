@@ -76,6 +76,20 @@ jobs:
           path.write_text(text)
           PY
 
+      - name: Validate patched source syntax
+        run: |
+          if ! node --check runner.js; then
+            echo '--- runner.js lines 555-580 ---'
+            nl -ba runner.js | sed -n '555,580p'
+            echo '--- source repr around parser position ---'
+            python - <<'PY'
+          from pathlib import Path
+          text = Path('runner.js').read_text()
+          print(repr(text[27550:27950]))
+          PY
+            exit 1
+          fi
+
       - name: Rebuild bookmarklet
         run: npm run build:bookmarklet
 
