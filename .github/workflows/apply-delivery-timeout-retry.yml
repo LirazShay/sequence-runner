@@ -1,0 +1,55 @@
+name: Apply delivery timeout retry
+
+on:
+  push:
+    branches:
+      - fix/delivery-timeout-retry
+    paths:
+      - scripts/apply-delivery-timeout-retry.mjs
+      - .github/workflows/apply-delivery-timeout-retry.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/delivery-timeout-retry
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply patch
+        run: node scripts/apply-delivery-timeout-retry.mjs
+
+      - name: Syntax check
+        run: node --check runner.js
+
+      - name: Build bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Run regression suite
+        run: npm test
+
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.js runner.min.js AGENTS.md README.md tests/mock-chatgpt/mock-chatgpt.js tests/e2e
+          if git diff --cached --quiet; then
+            echo "No product changes to commit"
+            exit 0
+          fi
+          git commit -m "Recover Runner sends from delivery timeout"
+          git push origin HEAD:fix/delivery-timeout-retry
