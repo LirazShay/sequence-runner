@@ -105,8 +105,16 @@ test("same active response is nudged once after ten minutes without clicking Sto
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
-  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext(
+      "steady",
+      "autonomous",
+      false,
+      undefined,
+      undefined,
+      20
+    )
+  );
   await waitForTrackedGeneration(harness);
 
   await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
@@ -134,8 +142,16 @@ test("wake inserts text before requiring Send while generation is active", async
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
-  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext(
+      "steady",
+      "autonomous",
+      false,
+      undefined,
+      undefined,
+      20
+    )
+  );
   await waitForTrackedGeneration(harness);
 
   await harness.page.evaluate(() => {
@@ -216,8 +232,16 @@ test("occupied composer defers the wake without overwriting user text", async ({
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
-  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext(
+      "steady",
+      "autonomous",
+      false,
+      undefined,
+      undefined,
+      20
+    )
+  );
   await waitForTrackedGeneration(harness);
 
   await harness.page.evaluate(() => window.__mockChatGPT.setComposerText("USER_DRAFT"));
@@ -338,8 +362,16 @@ test("tracked generation still wakes when its turn DOM is temporarily unavailabl
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
-  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext(
+      "steady",
+      "autonomous",
+      false,
+      undefined,
+      undefined,
+      20
+    )
+  );
   await expect.poll(
     () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.activeGenerationStartedAt)
   ).not.toBeNull();
