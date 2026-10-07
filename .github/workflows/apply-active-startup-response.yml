@@ -41,7 +41,22 @@ jobs:
         run: google-chrome --version
 
       - name: Run regression suite
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.log
+
+      - name: Upload regression failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: active-startup-regression-failure
+          path: |
+            test-output.log
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Remove temporary patch machinery
         run: |
