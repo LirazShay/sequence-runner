@@ -98,7 +98,7 @@ test("five-minute wake does not restart the ten-minute split clock", async ({ ha
   await installClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }, { type: "hold" }] });
 
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext("steady", "autonomous", false, 5));
   await waitForTrackedGeneration(harness);
 
   await advanceClock(harness, 5 * 60 * 1000 + 1000);
