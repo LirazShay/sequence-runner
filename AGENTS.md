@@ -260,6 +260,8 @@ After a long wait, status/diagnostic notices are allowed, but they must not term
 
 The one explicit automatic long-wait exception is a one-shot wake nudge for the same continuously active tracked Assistant response. Its per-run delay must stay within 1–20 minutes and defaults to 5. Its default message is `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`, with `מה קורה?` available as a preset and arbitrary non-empty custom text allowed. When the configured delay elapses, immediately attempt to send the configured wake message once through the existing immediate composer/send path. Never wait for the active response to finish, never preflight on Send availability before inserting the wake text, never click Stop, never resend the interrupted runner prompt, never overwrite user composer text, and never send the nudge more than once for the same tracked response. If the composer already contains user text, defer only to preserve that draft; otherwise insert the wake text immediately and let the immediate-send path wait briefly for Send to become available after insertion. Eligibility resets for the next tracked Assistant response.
 
+Startup activity must use the same tracked-response machinery rather than a separate untracked wait loop. In existing-ready mode, if ChatGPT is already generating when the Runner starts, adopt that in-flight response as an external startup cycle so wake, interruption, completion and handoff rules still apply. That observed startup response does not increment Runner-response counters because the Runner did not send its opening message. Keep the compact first safety contract pending until it is actually sent or the sequence finishes/handoffs; a wake or explicit immediate message must not silently discard it. For ordinary existing/new-task startup, pre-existing unrelated ChatGPT generation may defer the first Runner send but must not receive an automatic wake nudge. A tracked cycle must continue wake timing even if its turn DOM is temporarily unavailable.
+
 Do not implement automatic resend loops. Manual stop remains the safe escape hatch if a run is genuinely stuck.
 
 ### Composer safety
@@ -514,6 +516,10 @@ Important behavioral cases include:
 - a valid handoff marker block is parsed only when it is complete and at the end of the response
 - an exact connection-interrupted response recovers a handoff only when the `NEXT_CHAT_PROMPT` is complete and only the final outer handoff close is missing
 - a bare `סיימתי` under connection interruption does not complete the run, and a deferred first send yields only to an unambiguous newer handoff
+- existing-ready startup adopts an already-active opening response, including wake and connection-interruption behavior
+- the compact first safety contract survives wake/immediate-message supersession and is sent after the adopted response unless completion or handoff makes it unnecessary
+- ordinary startup waits behind unrelated pre-existing generation without nudging it
+- wake timing survives temporary loss/replacement of the tracked turn DOM
 - a response with `סיימתי` immediately before a valid final handoff block performs the handoff instead of stopping
 - a bare final `סיימתי` stops only when no handoff block follows it
 - a malformed handoff block fails safely instead of sending a continuation

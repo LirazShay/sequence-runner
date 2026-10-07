@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.35";
+    const VERSION = "3.36";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -2690,6 +2690,8 @@
             deliveryRetryAttempts: cycle.deliveryRetryAttempts ?? 0,
             deliveryRetryState: cycle.deliveryRetryState ?? "idle",
             deliveryRetryClickedAt: cycle.deliveryRetryClickedAt ?? null,
+            countsTowardCompletedResponses:
+                cycle.countsTowardCompletedResponses !== false,
             processed: !!cycle.processed,
             beforeTurnKeys: cycle.beforeKeys
                 ? [...cycle.beforeKeys]
@@ -2782,6 +2784,19 @@
 
         const stopSelector = snapshot.selectors['button[aria-label="Stop"]'];
         const stopVisible = !!stopSelector && stopSelector.visibleCount > 0;
+
+        if (
+            stopVisible &&
+            snapshot.runner.runStarted &&
+            !snapshot.runner.currentCycle &&
+            !snapshot.runner.pendingAutoSend
+        ) {
+            observations.push({
+                code: "UNTRACKED_ACTIVE_GENERATION",
+                message: "ChatGPT is actively generating, but the runner has neither a tracked cycle nor a pending automatic send."
+            });
+        }
+
         if (
             !stopVisible &&
             [
@@ -4170,8 +4185,10 @@
         trigger,
         pending,
         eventName,
-        existingTurn
+        existingTurn,
+        options
     ) {
+        const opts = options || {};
         const baseline =
             normalizeTurnKeySnapshot(
                 baselineTurnKeys
@@ -4183,22 +4200,31 @@
                 new Set(baseline)
             );
 
-        if (!turn) {
+        if (
+            !turn &&
+            !opts.allowMissingTurn
+        ) {
             return false;
         }
 
         const turnKey = getTurnKey(turn);
         const stopButton = getStopButton();
 
-        pendingAutoSend = null;
+        if (!opts.preservePendingAutoSend) {
+            pendingAutoSend = null;
+        }
         sendLocked = false;
 
         currentCycle = {
-            id: "external-" + Date.now(),
-            label: "external",
+            id:
+                opts.id ||
+                "external-" + Date.now(),
+            label:
+                opts.label || "external",
             prompt: null,
             beforeKeys: new Set(baseline),
-            sentAt: Date.now(),
+            sentAt:
+                opts.startedAt || Date.now(),
             turnKey,
             sawStop: !!stopButton,
             lastText: null,
@@ -4212,6 +4238,8 @@
             deliveryRetryAttempts: 0,
             deliveryRetryState: "idle",
             deliveryRetryClickedAt: null,
+            countsTowardCompletedResponses:
+                opts.countsTowardCompletedResponses !== false,
             processed: false
         };
 
@@ -4224,7 +4252,11 @@
                     pending?.label || null,
                 pendingReason:
                     pending?.reason || null,
-                turnKey
+                turnKey,
+                preservePendingAutoSend:
+                    !!opts.preservePendingAutoSend,
+                countsTowardCompletedResponses:
+                    currentCycle.countsTowardCompletedResponses
             }
         );
 
@@ -4232,7 +4264,8 @@
             stopButton
                 ? "GENERATING"
                 : "WAITING_FOR_RESPONSE",
-            "👤 זוהתה הודעת משתמש חדשה; בודק קודם את התשובה החדשה...",
+            opts.statusMessage ||
+                "👤 זוהתה הודעת משתמש חדשה; בודק קודם את התשובה החדשה...",
             "#b45309"
         );
 
@@ -4251,6 +4284,43 @@
             trigger,
             pending,
             "continuation-superseded-by-external-turn"
+        );
+    }
+
+    function adoptExistingReadyActiveResponse(
+        trigger,
+        pending
+    ) {
+        if (
+            !selectedSkipFirstMessage ||
+            !getStopButton()
+        ) {
+            return false;
+        }
+
+        const turns = getTurns();
+        const latestTurn =
+            turns.at(-1) || null;
+        const baseline =
+            turns
+                .slice(0, -1)
+                .map(getTurnKey)
+                .filter(Boolean);
+
+        return adoptExternalTurn(
+            baseline,
+            trigger,
+            pending,
+            "existing-ready-active-response-adopted",
+            latestTurn,
+            {
+                allowMissingTurn: true,
+                preservePendingAutoSend: true,
+                label: "external-startup",
+                countsTowardCompletedResponses: false,
+                statusMessage:
+                    "👀 עוקב אחרי התגובה שכבר הייתה פעילה כשהריצה התחילה..."
+            }
         );
     }
 
@@ -4368,10 +4438,16 @@
             ) ||
             (
                 pendingAutoSend.label === "first" &&
-                adoptExternalHandoffForPendingFirst(
-                    pendingAutoSend.baselineTurnKeys,
-                    "pending-resume",
-                    pendingAutoSend
+                (
+                    adoptExistingReadyActiveResponse(
+                        "pending-resume",
+                        pendingAutoSend
+                    ) ||
+                    adoptExternalHandoffForPendingFirst(
+                        pendingAutoSend.baselineTurnKeys,
+                        "pending-resume",
+                        pendingAutoSend
+                    )
                 )
             )
         ) {
@@ -4523,17 +4599,31 @@
             }
 
             if (pendingAutoSend) {
-                record(
-                    "pending-auto-send-replaced-by-immediate-message",
-                    {
-                        label:
-                            pendingAutoSend.label,
-                        reason:
-                            pendingAutoSend.reason
-                    }
-                );
+                if (
+                    pendingAutoSend.label ===
+                    "first"
+                ) {
+                    record(
+                        "pending-first-send-preserved-by-immediate-message",
+                        {
+                            reason:
+                                pendingAutoSend.reason,
+                            source
+                        }
+                    );
+                } else {
+                    record(
+                        "pending-auto-send-replaced-by-immediate-message",
+                        {
+                            label:
+                                pendingAutoSend.label,
+                            reason:
+                                pendingAutoSend.reason
+                        }
+                    );
 
-                pendingAutoSend = null;
+                    pendingAutoSend = null;
+                }
             }
 
             sendLocked = true;
@@ -4632,6 +4722,17 @@
                     "chatgpt-busy",
                     deferBaselineTurnKeys
                 );
+
+                if (
+                    label === "first" &&
+                    selectedSkipFirstMessage
+                ) {
+                    adoptExistingReadyActiveResponse(
+                        "first-send-deferred",
+                        pendingAutoSend
+                    );
+                }
+
                 return false;
             }
 
@@ -5080,6 +5181,25 @@
         return true;
     }
 
+    function clearPendingFirstSend(reason) {
+        if (
+            !pendingAutoSend ||
+            pendingAutoSend.label !== "first"
+        ) {
+            return false;
+        }
+
+        record("pending-first-send-cleared", {
+            reason,
+            pendingReason:
+                pendingAutoSend.reason
+        });
+
+        pendingAutoSend = null;
+        renderPanel();
+        return true;
+    }
+
     function completeCycle(cycle, text, options) {
         if (
             stopped ||
@@ -5092,7 +5212,14 @@
         cycle.processed = true;
         processedTurnKeys.add(cycle.turnKey);
         sendLocked = false;
-        completedResponseCount++;
+
+        const countsTowardCompletedResponses =
+            cycle.countsTowardCompletedResponses !== false;
+
+        if (countsTowardCompletedResponses) {
+            completedResponseCount++;
+        }
+
         renderPanel();
 
         const responseDone =
@@ -5111,7 +5238,9 @@
                 handoff.requested,
             handoffValid:
                 handoff.requested &&
-                !handoff.error
+                !handoff.error,
+            counted:
+                countsTowardCompletedResponses
         });
 
         if (shouldStopForStepLimit()) {
@@ -5184,6 +5313,10 @@
         }
 
         if (handoff.requested) {
+            clearPendingFirstSend(
+                "handoff"
+            );
+
             setState(
                 "READY_TO_HANDOFF",
                 "🔁 התגובה ביקשה להמשיך בצ'אט חדש...",
@@ -5217,7 +5350,43 @@
         }
 
         if (responseDone) {
+            clearPendingFirstSend(
+                "sequence-complete"
+            );
             stop("done-keyword", true);
+            return;
+        }
+
+        if (
+            pendingAutoSend?.label ===
+            "first"
+        ) {
+            setState(
+                "READY_TO_SEND_FIRST",
+                "🔐 התגובה הפעילה הסתיימה; שולח עכשיו את חוזה הבטיחות הראשון...",
+                "#0369a1"
+            );
+
+            const completedCycle = cycle;
+
+            setTimeout(function () {
+                if (
+                    stopped ||
+                    currentCycle !==
+                        completedCycle
+                ) {
+                    return;
+                }
+
+                currentCycle = null;
+
+                resumePendingAutoSend(
+                    false
+                ).catch(function (err) {
+                    fail(err.message, err);
+                });
+            }, CONFIG.CONTINUE_DELAY_MS);
+
             return;
         }
 
@@ -5312,6 +5481,34 @@
             resolveCycleTurn(cycle);
 
         if (!turn) {
+            const connectionInterrupted =
+                getConnectionInterruptedStatus(
+                    null
+                );
+
+            if (connectionInterrupted) {
+                updateLongRunningWake(
+                    cycle,
+                    false
+                );
+
+                setState(
+                    "WAITING_FOR_INTERRUPTED_RESPONSE",
+                    "⚠️ החיבור נקטע; ממתין להתאוששות ChatGPT לפני פעולה נוספת.",
+                    "#b45309"
+                );
+                return;
+            }
+
+            if (
+                updateLongRunningWake(
+                    cycle,
+                    !!stopButton
+                )
+            ) {
+                return;
+            }
+
             if (stopButton) {
                 setState(
                     "GENERATING",
@@ -5745,38 +5942,6 @@
         });
 
         renderPanel();
-
-        if (getStopButton()) {
-            const idleWait = {
-                longWaitNoticeBucket: -1
-            };
-
-            const idleStartedAt = Date.now();
-
-            setState(
-                "WAITING_FOR_IDLE",
-                "⏳ Waiting for current ChatGPT response to finish...",
-                "#d39e00"
-            );
-
-            while (!stopped && getStopButton()) {
-                updateStatus(
-                    getLongWaitStatus(
-                        "⏳ Waiting for current ChatGPT response to finish...",
-                        idleStartedAt,
-                        idleWait,
-                        "initial-idle"
-                    ),
-                    "#d39e00"
-                );
-
-                await sleep(1000);
-            }
-
-            if (stopped) {
-                return;
-            }
-        }
 
         try {
             await sendPrompt(

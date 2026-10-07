@@ -229,3 +229,146 @@ test("occupied composer defers the wake without overwriting user text", async ({
 
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });
+
+
+test("existing-ready wakes the opening response that was already generating and preserves the pending compact contract", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({
+    responses: [
+      { type: "hold" },
+      {
+        type: "normal",
+        replaceActiveGeneration: true,
+        text: "Wake acknowledged."
+      },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("OPENING_ALREADY_SENT_LONG");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext("steady", "autonomous", true)
+  );
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.label)
+  ).toBe("external-startup");
+
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await harness.waitForState("DONE", 4000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(3);
+  expect(sent[0]).toBe("OPENING_ALREADY_SENT_LONG");
+  expect(sent[1]).toBe(DEFAULT_WAKE_MESSAGE);
+  expect(sent[2]).toMatch(/^תמשיך לשלב הבא./);
+  expect(sent[2]).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
+
+  const events = await harness.events();
+  expect(events.some((event) => event.type === "stop-click")).toBeFalsy();
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "pending-first-send-preserved-by-immediate-message")).toBeTruthy();
+  expect(log.filter((entry) => entry.event === "long-wait-wake-sent")).toHaveLength(1);
+});
+
+test("existing-ready connection interruption suppresses wake even when Stop lingers", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({
+    responses: [
+      { type: "connection-interrupted", text: "Partial interrupted response" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("OPENING_ALREADY_SENT_INTERRUPTED");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext("steady", "autonomous", true)
+  );
+  await harness.waitForState("WAITING_FOR_INTERRUPTED_RESPONSE", 3000);
+
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  expect(await harness.sentMessages()).toEqual(["OPENING_ALREADY_SENT_INTERRUPTED"]);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "long-wait-wake-sent")).toBeFalsy();
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
+
+test("tracked generation still wakes when its turn DOM is temporarily unavailable", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.activeGenerationStartedAt)
+  ).not.toBeNull();
+
+  await harness.page.evaluate(() => {
+    document.querySelector('[data-turn-key]')?.remove();
+  });
+
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await harness.waitForSentCount(2);
+
+  const sent = await harness.sentMessages();
+  expect(sent[1]).toBe(DEFAULT_WAKE_MESSAGE);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.filter((entry) => entry.event === "long-wait-wake-sent")).toHaveLength(1);
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
+
+test("ordinary startup defers behind unrelated generation without nudging it", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "Unrelated response.", finishDelayMs: 300 },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("UNRELATED_PRE_RUN_MESSAGE");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  expect(await harness.sentMessages()).toEqual(["UNRELATED_PRE_RUN_MESSAGE"]);
+  const preCompletionLog = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(preCompletionLog.some((entry) => entry.event === "long-wait-wake-sent")).toBeFalsy();
+
+  await harness.waitForState("DONE", 4000);
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).not.toBe(DEFAULT_WAKE_MESSAGE);
+  expect(sent[1]).toContain("בכל פעם שאכתוב 'תמשיך לשלב הבא'");
+});

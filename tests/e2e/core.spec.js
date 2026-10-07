@@ -93,6 +93,73 @@ test("opening-message-already-sent uses a compact safety contract", async ({ har
   expect(state.skipFirstMessage).toBe(true);
 });
 
+test("existing-ready adopts an already-active opening response before sending its compact first contract", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "Opening response complete.", finishDelayMs: 180 },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("OPENING_ALREADY_SENT");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext("steady", "autonomous", true)
+  );
+  await harness.waitForState("DONE", 4000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[0]).toBe("OPENING_ALREADY_SENT");
+  expect(sent[1]).toMatch(/^תמשיך לשלב הבא./);
+  expect(sent[1]).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
+
+  const state = await harness.runnerState();
+  expect(state.completedResponseCount).toBe(1);
+
+  const metrics = await harness.page.evaluate(() => window.__sequenceRunner.getMetrics());
+  expect(metrics.runner.sent).toBe(1);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "existing-ready-active-response-adopted")).toBeTruthy();
+});
+
+test("existing-ready honors completion from the opening response already in flight", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "סיימתי", finishDelayMs: 180 }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("OPENING_ALREADY_SENT_DONE");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext("steady", "autonomous", true)
+  );
+  await harness.waitForState("DONE", 4000);
+
+  expect(await harness.sentMessages()).toEqual(["OPENING_ALREADY_SENT_DONE"]);
+  const metrics = await harness.page.evaluate(() => window.__sequenceRunner.getMetrics());
+  expect(metrics.runner.sent).toBe(0);
+  expect(metrics.runner.completed).toBe(0);
+});
+
 test("compact existing-ready contract preserves work style and decision mode", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({ responses: [{ type: "normal", text: "סיימתי" }] });
@@ -237,7 +304,7 @@ test("committed bookmarklet artifact boots the same runner in a browser", async 
   }));
 
   expect(result).toEqual({
-    version: "3.35",
+    version: "3.36",
     state: "READY_TO_START",
     panel: true
   });

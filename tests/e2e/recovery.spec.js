@@ -17,6 +17,47 @@ test("occupied composer defers automatic send and resumes after the user clears 
   expect(await harness.sentMessages()).toHaveLength(1);
 });
 
+test("a deferred first contract survives an explicit immediate message", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "hold" },
+      {
+        type: "normal",
+        replaceActiveGeneration: true,
+        text: "Immediate message handled."
+      },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("UNRELATED_BUSY_RESPONSE");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("WAITING_FOR_EXTERNAL_ACTIVITY");
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.sendMessageImmediately("MANUAL_INTERMEDIATE")
+  );
+  await harness.waitForState("DONE", 4000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(3);
+  expect(sent[0]).toBe("UNRELATED_BUSY_RESPONSE");
+  expect(sent[1]).toBe("MANUAL_INTERMEDIATE");
+  expect(sent[2]).toContain("בכל פעם שאכתוב 'תמשיך לשלב הבא'");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "pending-first-send-preserved-by-immediate-message")).toBeTruthy();
+});
+
 test("stale visible composer does not steal runner insertion from the current composer", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({ responses: [{ type: "normal", text: "סיימתי" }] });
