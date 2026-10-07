@@ -31,7 +31,7 @@ jobs:
                   raise SystemExit(f"{path}: expected {expected} occurrences, found {count}: {old!r}")
               p.write_text(text.replace(old, new), encoding="utf-8")
 
-          def replace_in_test(path, title, old, new):
+          def replace_in_test(path, title, old, new, expected=1):
               p = Path(path)
               text = p.read_text(encoding="utf-8")
               marker = f'test("{title}"'
@@ -43,9 +43,9 @@ jobs:
                   end = len(text)
               block = text[start:end]
               count = block.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected one occurrence in {title!r}, found {count}: {old!r}")
-              block = block.replace(old, new, 1)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} occurrences in {title!r}, found {count}: {old!r}")
+              block = block.replace(old, new)
               p.write_text(text[:start] + block + text[end:], encoding="utf-8")
 
           def insert_in_test(path, title, needle, insertion):
@@ -56,7 +56,7 @@ jobs:
           replace_count("tests/e2e/live-smoke.spec.js", 'wakeUi.delay).toBe("5")', 'wakeUi.delay).toBe("10")')
 
           recovery_title = "restart fully resets a completed runner for a second task"
-          replace_in_test("tests/e2e/recovery.spec.js", recovery_title, 'afterMinutes: 5,', 'afterMinutes: 10,')
+          replace_in_test("tests/e2e/recovery.spec.js", recovery_title, 'afterMinutes: 5,', 'afterMinutes: 10,', 2)
           replace_in_test("tests/e2e/recovery.spec.js", recovery_title, 'delay: "5",', 'delay: "10",')
 
           start_needle = "  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());\n"
