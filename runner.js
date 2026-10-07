@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.36";
+    const VERSION = "3.37";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -29,6 +29,11 @@
         LONG_WAIT_WAKE_DEFAULT_MINUTES: 5,
         LONG_WAIT_WAKE_DEFAULT_MESSAGE: "לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.",
         LONG_WAIT_WAKE_SHORT_MESSAGE: "מה קורה?",
+        LONG_WAIT_SPLIT_MIN_MINUTES: 1,
+        LONG_WAIT_SPLIT_MAX_MINUTES: 20,
+        LONG_WAIT_SPLIT_DEFAULT_MINUTES: 10,
+        LONG_WAIT_SPLIT_DEFAULT_MESSAGE: "העבודה הזו מתארכת יותר מדי לתשובה אחת. עצור בנקודת checkpoint בטוחה: סיים ואמת רק את המקטע הנוכחי. אם מה שנשאר גדול, חלק אותו למקטעים לפי התכנון, סכם בקצרה מה הושלם ומה המקטע הבא, ואז עצור וחכה ל\'תמשיך לשלב הבא\'. אל תתחיל את המקטע הבא באותה תשובה.",
+        LONG_WAIT_SPLIT_SHORT_MESSAGE: "פצל את העבודה עכשיו: סיים checkpoint בטוח, סכם מה הושלם ומה הבא, עצור, והמשך רק אחרי \'תמשיך לשלב הבא\'.",
         UI_REFRESH_MS: 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
@@ -226,7 +231,50 @@
         '<option value="custom">מותאם אישית</option>',
         '</select>',
         '<textarea data-input="wake-message" rows="3" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px">' + escapeHtml(CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE) + '</textarea>',
-        '<div style="font-size:10px;color:#94a3b8">ההודעה נשלחת לכל היותר פעם אחת לכל תשובה פעילה, בלי ללחוץ Stop ובלי לדרוס טקסט שכבר הוקלד.</div>',
+        '<div style="font-size:10px;color:#94a3b8">הודעת הבדיקה נשלחת לכל היותר פעם אחת לכל תשובה פעילה, בלי ללחוץ Stop ובלי לדרוס טקסט שכבר הוקלד.</div>',
+        '<div style="border-top:1px solid rgba(255,255,255,.10);padding-top:8px;margin-top:9px">',
+        '<div style="font-weight:700;margin-bottom:5px">פיצול עבודה ארוכה</div>',
+        '<div style="font-size:11px;color:#cbd5e1;margin-bottom:4px">שלח הוראת פיצול אחרי:</div>',
+        '<select data-input="split-after-minutes" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">' +
+            Array.from(
+                {
+                    length:
+                        CONFIG.LONG_WAIT_SPLIT_MAX_MINUTES -
+                        CONFIG.LONG_WAIT_SPLIT_MIN_MINUTES +
+                        1
+                },
+                function (_, index) {
+                    const minutes =
+                        CONFIG.LONG_WAIT_SPLIT_MIN_MINUTES +
+                        index;
+
+                    return (
+                        '<option value="' +
+                        minutes +
+                        '"' +
+                        (minutes ===
+                        CONFIG.LONG_WAIT_SPLIT_DEFAULT_MINUTES
+                            ? ' selected'
+                            : '') +
+                        '>' +
+                        minutes +
+                        (minutes === 1
+                            ? ' דקה'
+                            : ' דקות') +
+                        '</option>'
+                    );
+                }
+            ).join('') +
+            '</select>',
+        '<div style="font-size:11px;color:#cbd5e1;margin-bottom:4px">הוראת פיצול:</div>',
+        '<select data-input="split-message-preset" style="width:100%;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:6px">',
+        '<option value="split">' + escapeHtml(CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE) + '</option>',
+        '<option value="short">' + escapeHtml(CONFIG.LONG_WAIT_SPLIT_SHORT_MESSAGE) + '</option>',
+        '<option value="custom">מותאם אישית</option>',
+        '</select>',
+        '<textarea data-input="split-message" rows="4" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px">' + escapeHtml(CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE) + '</textarea>',
+        '<div style="font-size:10px;color:#94a3b8">ברירת המחדל היא 10 דקות. אם הודעת הבדיקה נשלחה קודם, שעון הפיצול ממשיך מהתגובה הארוכה המקורית ולא מתחיל מחדש. הוראת הפיצול נשלחת פעם אחת, בלי ללחוץ Stop ובלי לדרוס טקסט קיים.</div>',
+        '</div>',
         '</div>',
         '<div data-role="diagnostic" style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
         '<div style="font-weight:700;margin-bottom:7px">אבחון תקלה</div>',
@@ -290,6 +338,15 @@
         CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES;
     let selectedWakeMessage =
         CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
+    let selectedSplitAfterMinutes =
+        CONFIG.LONG_WAIT_SPLIT_DEFAULT_MINUTES;
+    let selectedSplitMessage =
+        CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE;
+    let longWorkStartedAt = null;
+    let splitState = "idle";
+    let splitThresholdReachedAt = null;
+    let splitDeferredReason = null;
+    let splitSentAt = null;
     let runnerStartedAt = null;
     let injectionSeq = 0;
     let injectionSentCount = 0;
@@ -441,6 +498,90 @@
         }
 
         return "custom";
+    }
+
+    function normalizeSplitAfterMinutes(value) {
+        if (value == null || value === "") {
+            return CONFIG.LONG_WAIT_SPLIT_DEFAULT_MINUTES;
+        }
+
+        const parsed = Number(value);
+
+        if (
+            !Number.isInteger(parsed) ||
+            parsed < CONFIG.LONG_WAIT_SPLIT_MIN_MINUTES ||
+            parsed > CONFIG.LONG_WAIT_SPLIT_MAX_MINUTES
+        ) {
+            throw new Error(
+                "Long-wait split delay must be an integer from " +
+                    CONFIG.LONG_WAIT_SPLIT_MIN_MINUTES +
+                    " to " +
+                    CONFIG.LONG_WAIT_SPLIT_MAX_MINUTES +
+                    " minutes."
+            );
+        }
+
+        return parsed;
+    }
+
+    function normalizeSplitMessage(value) {
+        if (value == null) {
+            return CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE;
+        }
+
+        const message = normalizeText(value);
+
+        if (!message) {
+            throw new Error(
+                "Long-wait split message cannot be empty."
+            );
+        }
+
+        return message;
+    }
+
+    function getSplitMessagePreset(value) {
+        const message = normalizeText(value);
+
+        if (
+            message ===
+            normalizeText(
+                CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE
+            )
+        ) {
+            return "split";
+        }
+
+        if (
+            message ===
+            normalizeText(
+                CONFIG.LONG_WAIT_SPLIT_SHORT_MESSAGE
+            )
+        ) {
+            return "short";
+        }
+
+        return "custom";
+    }
+
+    function resetLongWorkSplitTracking(reason) {
+        const hadTracking =
+            longWorkStartedAt != null ||
+            splitState !== "idle";
+
+        if (hadTracking) {
+            record("long-wait-split-reset", {
+                reason: reason || null,
+                startedAt: longWorkStartedAt,
+                splitState
+            });
+        }
+
+        longWorkStartedAt = null;
+        splitState = "idle";
+        splitThresholdReachedAt = null;
+        splitDeferredReason = null;
+        splitSentAt = null;
     }
 
     function isDone(text) {
@@ -1453,6 +1594,9 @@
         cycle.wakeThresholdReachedAt = null;
         cycle.wakeDeferredReason = null;
         cycle.wakeSentAt = null;
+        resetLongWorkSplitTracking(
+            "delivery-retry"
+        );
 
         record("delivery-retry-clicked", {
             id: cycle.id,
@@ -3069,6 +3213,18 @@
             '[data-input="wake-message"]'
         );
 
+        const splitAfterMinutesSelect = panel.querySelector(
+            '[data-input="split-after-minutes"]'
+        );
+
+        const splitMessagePresetSelect = panel.querySelector(
+            '[data-input="split-message-preset"]'
+        );
+
+        const splitMessageArea = panel.querySelector(
+            '[data-input="split-message"]'
+        );
+
         const syncWakePresetFromMessage = function () {
             if (!wakeMessagePresetSelect) {
                 return;
@@ -3108,6 +3264,45 @@
             syncWakePresetFromMessage
         );
 
+        const syncSplitPresetFromMessage = function () {
+            if (!splitMessagePresetSelect) {
+                return;
+            }
+
+            splitMessagePresetSelect.value =
+                getSplitMessagePreset(
+                    splitMessageArea?.value || ""
+                );
+        };
+
+        splitMessagePresetSelect?.addEventListener(
+            "change",
+            function () {
+                if (!splitMessageArea) {
+                    return;
+                }
+
+                if (
+                    splitMessagePresetSelect.value ===
+                    "split"
+                ) {
+                    splitMessageArea.value =
+                        CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE;
+                } else if (
+                    splitMessagePresetSelect.value ===
+                    "short"
+                ) {
+                    splitMessageArea.value =
+                        CONFIG.LONG_WAIT_SPLIT_SHORT_MESSAGE;
+                }
+            }
+        );
+
+        splitMessageArea?.addEventListener(
+            "input",
+            syncSplitPresetFromMessage
+        );
+
         const syncStartModeControls = function () {
             const isNewTask =
                 taskModeSelect?.value === "new";
@@ -3142,7 +3337,9 @@
                     decisionModeSelect?.value || "autonomous",
                     startMode === "existing-ready",
                     wakeAfterMinutesSelect?.value,
-                    wakeMessageArea?.value
+                    wakeMessageArea?.value,
+                    splitAfterMinutesSelect?.value,
+                    splitMessageArea?.value
                 ).catch(function (err) {
                     updateStatus(
                         "🔴 " + err.message,
@@ -3931,6 +4128,18 @@
             '[data-input="wake-message"]'
         );
 
+        const splitAfterMinutes = panel.querySelector(
+            '[data-input="split-after-minutes"]'
+        );
+
+        const splitMessagePreset = panel.querySelector(
+            '[data-input="split-message-preset"]'
+        );
+
+        const splitMessage = panel.querySelector(
+            '[data-input="split-message"]'
+        );
+
         const inputs = [
             '[data-input="injection-text"]',
             '[data-input="injection-after"]',
@@ -3963,6 +4172,21 @@
         if (wakeMessage) {
             wakeMessage.value =
                 CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
+        }
+
+        if (splitAfterMinutes) {
+            splitAfterMinutes.value = String(
+                CONFIG.LONG_WAIT_SPLIT_DEFAULT_MINUTES
+            );
+        }
+
+        if (splitMessagePreset) {
+            splitMessagePreset.value = "split";
+        }
+
+        if (splitMessage) {
+            splitMessage.value =
+                CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE;
         }
 
         if (taskText) {
@@ -4018,6 +4242,11 @@
             CONFIG.LONG_WAIT_WAKE_DEFAULT_MINUTES;
         selectedWakeMessage =
             CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE;
+        selectedSplitAfterMinutes =
+            CONFIG.LONG_WAIT_SPLIT_DEFAULT_MINUTES;
+        selectedSplitMessage =
+            CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE;
+        resetLongWorkSplitTracking("restart");
         runnerStartedAt = null;
         injectionSeq = 0;
         injectionSentCount = 0;
@@ -4214,6 +4443,8 @@
             pendingAutoSend = null;
         }
         sendLocked = false;
+
+        resetLongWorkSplitTracking("external-turn-adopted");
 
         currentCycle = {
             id:
@@ -4626,6 +4857,15 @@
                 }
             }
 
+            if (
+                source !== "long-wait-wake" &&
+                source !== "long-wait-split"
+            ) {
+                resetLongWorkSplitTracking(
+                    "immediate-message"
+                );
+            }
+
             sendLocked = true;
 
             const id = ++cycleSeq;
@@ -4819,6 +5059,10 @@
                 "Send button did not become available."
             );
         }
+
+        resetLongWorkSplitTracking(
+            "runner-send"
+        );
 
         const id = ++cycleSeq;
 
@@ -5047,6 +5291,18 @@
                 cycle.wakeDeferredReason = null;
             }
 
+            if (longWorkStartedAt != null) {
+                if (splitState === "deferred") {
+                    record("long-wait-split-cancelled", {
+                        reason: "generation-ended-before-send"
+                    });
+                }
+
+                resetLongWorkSplitTracking(
+                    "generation-ended"
+                );
+            }
+
             return false;
         }
 
@@ -5057,8 +5313,142 @@
                 id: cycle.id,
                 turnKey: cycle.turnKey
             });
+        }
 
-            return false;
+        if (longWorkStartedAt == null) {
+            longWorkStartedAt =
+                cycle.activeGenerationStartedAt || now;
+
+            record("long-work-split-tracked", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                startedAt: longWorkStartedAt
+            });
+        }
+
+        const splitElapsedMs =
+            now - longWorkStartedAt;
+
+        if (
+            splitElapsedMs >=
+                selectedSplitAfterMinutes * 60 * 1000 &&
+            splitState !== "sent" &&
+            splitState !== "sending" &&
+            splitState !== "failed"
+        ) {
+            if (!splitThresholdReachedAt) {
+                splitThresholdReachedAt = now;
+
+                record("long-wait-split-threshold", {
+                    id: cycle.id,
+                    turnKey: cycle.turnKey,
+                    elapsedMs: splitElapsedMs,
+                    afterMinutes:
+                        selectedSplitAfterMinutes,
+                    message:
+                        selectedSplitMessage
+                });
+            }
+
+            const deferredReason =
+                getComposerText()
+                    ? "composer-occupied"
+                    : null;
+
+            if (deferredReason) {
+                if (
+                    splitState !== "deferred" ||
+                    splitDeferredReason !==
+                        deferredReason
+                ) {
+                    record("long-wait-split-deferred", {
+                        id: cycle.id,
+                        turnKey: cycle.turnKey,
+                        reason: deferredReason,
+                        elapsedMs: splitElapsedMs
+                    });
+                }
+
+                splitState = "deferred";
+                splitDeferredReason =
+                    deferredReason;
+
+                setState(
+                    "GENERATING",
+                    "⏰ עבר זמן הפיצול שהוגדר (" +
+                        formatWakeDelay(
+                            selectedSplitAfterMinutes
+                        ) +
+                        "); יש טקסט בתיבת ההודעה ולכן ממתין רק כדי לא לדרוס אותו.",
+                    "#b45309"
+                );
+
+                return true;
+            }
+
+            splitState = "sending";
+            splitDeferredReason = null;
+
+            record("long-wait-split-sending", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                elapsedMs: splitElapsedMs
+            });
+
+            sendImmediateInjection(
+                selectedSplitMessage,
+                {
+                    label: "split",
+                    source: "long-wait-split",
+                    countAsInjection: false,
+                    sentStatusMessage:
+                        "✂️ נשלחה הוראת פיצול אחרי " +
+                        formatWakeDelay(
+                            selectedSplitAfterMinutes
+                        ) +
+                        "; ממתין ל-checkpoint של העבודה...",
+                    sentStatusColor: "#b45309"
+                }
+            ).then(function () {
+                splitState = "sent";
+                splitSentAt = Date.now();
+
+                record("long-wait-split-sent", {
+                    id: cycle.id,
+                    turnKey: cycle.turnKey,
+                    elapsedMs: splitElapsedMs
+                });
+            }).catch(function (err) {
+                splitState = "failed";
+
+                record("long-wait-split-failed", {
+                    id: cycle.id,
+                    turnKey: cycle.turnKey,
+                    elapsedMs: splitElapsedMs,
+                    error:
+                        err?.message ||
+                        String(err || "")
+                });
+
+                if (!stopped) {
+                    setState(
+                        "GENERATING",
+                        "⚠️ לא ניתן היה לשלוח את הוראת הפיצול בבטחה; ממשיך להמתין לתגובה.",
+                        "#b45309"
+                    );
+                }
+            });
+
+            return true;
+        }
+
+        if (
+            splitState === "sending" ||
+            splitState === "sent" ||
+            splitState === "deferred"
+        ) {
+            return splitState === "sending" ||
+                splitState === "deferred";
         }
 
         const elapsedMs =
@@ -5859,7 +6249,9 @@
         decisionMode,
         skipFirstMessage,
         wakeAfterMinutes,
-        wakeMessage
+        wakeMessage,
+        splitAfterMinutes,
+        splitMessage
     ) {
         if (stopped) {
             throw new Error(
@@ -5887,6 +6279,16 @@
         const normalizedWakeMessage =
             normalizeWakeMessage(
                 wakeMessage
+            );
+
+        const normalizedSplitAfterMinutes =
+            normalizeSplitAfterMinutes(
+                splitAfterMinutes
+            );
+
+        const normalizedSplitMessage =
+            normalizeSplitMessage(
+                splitMessage
             );
 
         const shouldSkipFirstMessage =
@@ -5923,6 +6325,13 @@
             normalizedWakeAfterMinutes;
         selectedWakeMessage =
             normalizedWakeMessage;
+        selectedSplitAfterMinutes =
+            normalizedSplitAfterMinutes;
+        selectedSplitMessage =
+            normalizedSplitMessage;
+        resetLongWorkSplitTracking(
+            "run-start"
+        );
 
         runStarted = true;
         runnerStartedAt = Date.now();
@@ -5937,6 +6346,10 @@
                 selectedWakeAfterMinutes,
             wakeMessage:
                 selectedWakeMessage,
+            splitAfterMinutes:
+                selectedSplitAfterMinutes,
+            splitMessage:
+                selectedSplitMessage,
             hasTaskText:
                 !!selectedTaskText
         });
@@ -6029,6 +6442,20 @@
                         selectedWakeAfterMinutes,
                     message:
                         selectedWakeMessage
+                },
+                longWaitSplit: {
+                    afterMinutes:
+                        selectedSplitAfterMinutes,
+                    message:
+                        selectedSplitMessage,
+                    startedAt:
+                        longWorkStartedAt,
+                    state: splitState,
+                    thresholdReachedAt:
+                        splitThresholdReachedAt,
+                    deferredReason:
+                        splitDeferredReason,
+                    sentAt: splitSentAt
                 },
                 queuedIntermediateMessages:
                     injectionQueue.length,
@@ -6128,7 +6555,9 @@
             decisionMode,
             skipFirstMessage,
             wakeAfterMinutes,
-            wakeMessage
+            wakeMessage,
+            splitAfterMinutes,
+            splitMessage
         ) {
             return beginRun(
                 "existing",
@@ -6137,7 +6566,9 @@
                 decisionMode,
                 skipFirstMessage,
                 wakeAfterMinutes,
-                wakeMessage
+                wakeMessage,
+                splitAfterMinutes,
+                splitMessage
             );
         },
         startWithTask: function (
@@ -6145,7 +6576,9 @@
             workStyle,
             decisionMode,
             wakeAfterMinutes,
-            wakeMessage
+            wakeMessage,
+            splitAfterMinutes,
+            splitMessage
         ) {
             return beginRun(
                 "new",
@@ -6154,7 +6587,9 @@
                 decisionMode,
                 false,
                 wakeAfterMinutes,
-                wakeMessage
+                wakeMessage,
+                splitAfterMinutes,
+                splitMessage
             );
         },
         sendMessageImmediately:

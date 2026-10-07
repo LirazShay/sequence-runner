@@ -43,7 +43,7 @@ It opens the door to:
 - Execution logs and diagnostics.
 - Future packaging as a small browser extension or userscript instead of a raw bookmarklet/script.
 
-The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Two deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, and the one-shot configurable long-running-response wake nudge. The wake delay is selectable from 1–20 minutes (default 5), and its message can be chosen from presets or edited freely per run.
+The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Three deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, the one-shot configurable long-running-response wake nudge, and the one-shot configurable long-work split escalation. Wake defaults to 5 minutes and split defaults to 10 minutes; both delays are independently selectable from 1–20 minutes and both messages can be chosen from presets or edited freely per run. An automatic wake does not restart the split clock.
 
 ## Work style and decision mode
 
@@ -54,7 +54,7 @@ The start panel exposes two independent per-run controls.
 - **Steady** (default) — progress naturally, but organize work by goals and verifiable outcomes rather than tiny technical operations. It does not force a large block when one is unnecessary.
 - **Deep** — use the same goal/result segmentation, but push toward a substantial coherent stage that can include multiple related sub-steps, checks and fixes before stopping.
 
-Both styles use the same core rule: one segment should pursue one clear goal, do the work needed to achieve it, verify the result, and then reach a checkpoint. In general, prefer a small number of meaningful segments over many tiny steps.
+Both styles use the same core rule: one Assistant response should execute one meaningful segment, pursue one clear goal, do the work needed to achieve it, verify the result, and then stop at a checkpoint until the next `תמשיך לשלב הבא`. A segment may contain multiple technical operations; the rule is not to stop after every small action. Conversely, do not begin a second meaningful segment in the same response. If the segment grows too large, split it at a safe checkpoint and leave the remainder for a later response.
 
 **Decision Mode** controls whether significant choices interrupt the run:
 
@@ -72,7 +72,7 @@ __sequenceRunner.startExistingContext("deep", "autonomous")
 __sequenceRunner.startWithTask("TASK_TEXT", "steady", "collaborative")
 ```
 
-Unknown or omitted work-style/decision values safely fall back to `steady` and `autonomous`. The wake settings can optionally be supplied programmatically as trailing arguments: `startExistingContext(workStyle, decisionMode, skipFirstMessage, wakeAfterMinutes, wakeMessage)` and `startWithTask(taskText, workStyle, decisionMode, wakeAfterMinutes, wakeMessage)`. Omitted wake values use the 5-minute default and default wake message.
+Unknown or omitted work-style/decision values safely fall back to `steady` and `autonomous`. Wake and split settings can optionally be supplied programmatically as trailing arguments: `startExistingContext(workStyle, decisionMode, skipFirstMessage, wakeAfterMinutes, wakeMessage, splitAfterMinutes, splitMessage)` and `startWithTask(taskText, workStyle, decisionMode, wakeAfterMinutes, wakeMessage, splitAfterMinutes, splitMessage)`. Omitted wake values use the 5-minute default; omitted split values use the 10-minute default.
 
 ## Technical design
 
@@ -123,6 +123,7 @@ START
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.
 - For each run, the start panel lets the user configure the long-running-response wake delay from 1–20 minutes and choose or edit the wake message. The default is 5 minutes with `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`; `מה קורה?` is also available as a preset, and custom text is supported. When the exact same tracked Assistant response remains actively generating past the configured delay, the runner immediately attempts that one wake message through the same immediate composer/send path used by **Send now**, without clicking Stop or resending the original runner prompt. It does not wait for the active response to finish and does not require Send to be available before inserting the wake text; after insertion the immediate-send path waits briefly for Send to become available. The nudge is one-shot per response and defers only when the composer already contains user text, so that text is never overwritten.
+- A second independently configurable long-work split escalation defaults to 10 minutes (range 1–20). Its editable default instruction tells the assistant to complete and verify the current segment, split remaining work, summarize the next segment and stop at a safe checkpoint until `תמשיך לשלב הבא`. It uses the same immediate-send safety path, never clicks Stop, never overwrites a user draft and is one-shot for the continuous long-work episode. If the 5-minute wake already fired, the split timer keeps the original episode start time, so the default split instruction is still due at total minute 10 rather than 10 minutes after the wake.
 - Startup no longer uses a separate untracked busy-wait path. If **Existing task + opening message already sent** is started while its opening response is already generating, that response is adopted into the normal tracked-cycle machinery, so wake, connection-interruption, completion and handoff behavior remain consistent. The compact first safety contract stays pending through wake or explicit immediate-message supersession and is sent afterward unless the adopted response already completes or hands off the sequence. The adopted pre-run response is not counted as a Runner response. Ordinary existing/new-task startup still defers behind unrelated pre-existing generation without nudging it.
 - Wake tracking is cycle-based rather than turn-node-based: temporary loss of the tracked turn DOM does not disable the one-shot long-response wake while generation is still active.
 - The user can always stop manually by clicking the status badge.
@@ -231,7 +232,7 @@ The runner now includes a small floating management panel.
 
 It can be dragged around the page, minimized, scrolled internally and resized from its lower-left resize handle. Position, size and minimized state are persisted in browser local storage.
 
-The default panel size is intentionally compact so it does not cover most of the conversation. The header remains outside the scrolling body, while the controls and metrics scroll inside the panel when needed. Panel sections are ordered by practical usefulness rather than implementation history: start configuration and live metrics stay high, intermediate-message controls remain prominent, run limits follow, the long-running-response test/wake configuration sits near the bottom, and diagnostics are last.
+The default panel size is intentionally compact so it does not cover most of the conversation. The header remains outside the scrolling body, while the controls and metrics scroll inside the panel when needed. Panel sections are ordered by practical usefulness rather than implementation history: start configuration and live metrics stay high, intermediate-message controls remain prominent, run limits follow, the long-running-response wake/split configuration sits near the bottom, and diagnostics are last.
 
 The panel exposes current, DOM-observable chat metrics:
 
