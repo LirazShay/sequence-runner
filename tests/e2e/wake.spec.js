@@ -105,6 +105,7 @@ test("same active response is nudged once after ten minutes without clicking Sto
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await waitForTrackedGeneration(harness);
 
@@ -133,6 +134,7 @@ test("wake inserts text before requiring Send while generation is active", async
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await waitForTrackedGeneration(harness);
 
@@ -214,6 +216,7 @@ test("occupied composer defers the wake without overwriting user text", async ({
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await waitForTrackedGeneration(harness);
 
@@ -265,7 +268,14 @@ test("existing-ready wakes the opening response that was already generating and 
   ).toBe(1);
 
   await harness.page.evaluate(() =>
-    window.__sequenceRunner.startExistingContext("steady", "autonomous", true)
+    window.__sequenceRunner.startExistingContext(
+      "steady",
+      "autonomous",
+      true,
+      undefined,
+      undefined,
+      20
+    )
   );
 
   await expect.poll(
@@ -328,6 +338,7 @@ test("tracked generation still wakes when its turn DOM is temporarily unavailabl
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await expect.poll(
     () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.activeGenerationStartedAt)

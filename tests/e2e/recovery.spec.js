@@ -101,10 +101,10 @@ test("restart fully resets a completed runner for a second task", async ({ harne
 
   expect(resetWake).toEqual({
     state: {
-      afterMinutes: 5,
+      afterMinutes: 10,
       message: DEFAULT_WAKE_MESSAGE
     },
-    delay: "5",
+    delay: "10",
     preset: "supportive",
     message: DEFAULT_WAKE_MESSAGE
   });
@@ -117,7 +117,7 @@ test("restart fully resets a completed runner for a second task", async ({ harne
   expect(state.completedResponseCount).toBe(1);
   expect(state.taskMode).toBe("new");
   expect(state.longWaitWake).toEqual({
-    afterMinutes: 5,
+    afterMinutes: 10,
     message: DEFAULT_WAKE_MESSAGE
   });
 });

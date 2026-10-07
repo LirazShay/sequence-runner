@@ -19,7 +19,7 @@ test("live smoke check validates the current DOM contract without mutating chat 
 
   expect(result.report.ok).toBe(true);
   expect(result.report.runner.version).toBe(result.runnerVersion);
-  expect(result.report.wakeUi.delay).toBe("5");
+  expect(result.report.wakeUi.delay).toBe("10");
   expect(result.report.wakeUi.preset).toBe("supportive");
   expect(result.report.wakeUi.options).toEqual(
     Array.from({ length: 20 }, (_, index) => String(index + 1))
