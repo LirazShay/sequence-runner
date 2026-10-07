@@ -32,7 +32,9 @@ jobs:
         run: npm ci
 
       - name: Apply source patch
-        run: node scripts/patch-active-startup-response.mjs
+        run: |
+          node scripts/patch-active-startup-response.mjs
+          node scripts/patch-active-startup-diagnostic-version.mjs
 
       - name: Build bookmarklet
         run: npm run build:bookmarklet
@@ -61,6 +63,7 @@ jobs:
       - name: Remove temporary patch machinery
         run: |
           rm scripts/patch-active-startup-response.mjs
+          rm scripts/patch-active-startup-diagnostic-version.mjs
           rm .github/workflows/apply-active-startup-response.yml
 
       - name: Commit implementation
