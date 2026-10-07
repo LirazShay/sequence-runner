@@ -32,7 +32,9 @@ jobs:
         run: npm ci
 
       - name: Apply prompt patch
-        run: node scripts/patch-work-segmentation-prompt.mjs
+        run: |
+          node scripts/patch-work-segmentation-prompt.mjs
+          node scripts/patch-work-segmentation-extra-tests.mjs
 
       - name: Build bookmarklet
         run: npm run build:bookmarklet
@@ -61,7 +63,9 @@ jobs:
       - name: Remove temporary prompt patch machinery
         run: |
           rm scripts/patch-work-segmentation-prompt.mjs
+          rm scripts/patch-work-segmentation-extra-tests.mjs
           rm .github/workflows/apply-work-segmentation-prompt.yml
+          rm -f prompt-test-output.log
 
       - name: Commit prompt update
         run: |
