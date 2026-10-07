@@ -1,0 +1,78 @@
+name: Apply live runtime settings
+
+on:
+  push:
+    branches:
+      - feature/live-runtime-settings
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/live-runtime-settings
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply live settings implementation
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/apply-live-runtime-settings.mjs 2>&1 | tee live-settings-apply.log
+
+      - name: Build bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - name: Run regression suite
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee live-settings-test-output.log
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-runtime-settings-failure
+          path: |
+            live-settings-apply.log
+            live-settings-test-output.log
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Remove temporary patch machinery
+        run: |
+          rm scripts/apply-live-runtime-settings.mjs
+          rm .github/workflows/apply-live-runtime-settings.yml
+          rm -f live-settings-apply.log live-settings-test-output.log
+
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Make runtime long-wait settings live"
+          git push origin HEAD:feature/live-runtime-settings
