@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.38";
+    const VERSION = "3.39";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -26,7 +26,7 @@
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
         LONG_WAIT_WAKE_MIN_MINUTES: 1,
         LONG_WAIT_WAKE_MAX_MINUTES: 20,
-        LONG_WAIT_WAKE_DEFAULT_MINUTES: 5,
+        LONG_WAIT_WAKE_DEFAULT_MINUTES: 10,
         LONG_WAIT_WAKE_DEFAULT_MESSAGE: "לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.",
         LONG_WAIT_WAKE_SHORT_MESSAGE: "מה קורה?",
         LONG_WAIT_SPLIT_MIN_MINUTES: 1,

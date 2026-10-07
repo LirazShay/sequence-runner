@@ -44,7 +44,7 @@ test("start panel exposes configurable wake defaults and presets", async ({ harn
     };
   });
 
-  expect(config.delay).toBe("5");
+  expect(config.delay).toBe("10");
   expect(config.delayOptions).toEqual(
     Array.from({ length: 20 }, (_, index) => String(index + 1))
   );
@@ -85,7 +85,7 @@ test("edited wake delay and message are used for the active response", async ({ 
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });
 
-test("response that completes before five minutes is never nudged", async ({ harness }) => {
+test("response that completes before ten minutes is never nudged", async ({ harness }) => {
   await harness.load();
   await installWakeClock(harness);
   await harness.setScenario({
@@ -100,7 +100,7 @@ test("response that completes before five minutes is never nudged", async ({ har
   expect(log.some((entry) => entry.event === "long-wait-wake-sent")).toBeFalsy();
 });
 
-test("same active response is nudged once after five minutes without clicking Stop", async ({ harness }) => {
+test("same active response is nudged once after ten minutes without clicking Stop", async ({ harness }) => {
   await harness.load();
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
@@ -108,7 +108,7 @@ test("same active response is nudged once after five minutes without clicking St
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
   await waitForTrackedGeneration(harness);
 
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
   await new Promise((resolve) => setTimeout(resolve, 120));
@@ -154,7 +154,7 @@ test("wake inserts text before requiring Send while generation is active", async
     });
   });
 
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
   const sent = await harness.sentMessages();
@@ -218,7 +218,7 @@ test("occupied composer defers the wake without overwriting user text", async ({
   await waitForTrackedGeneration(harness);
 
   await harness.page.evaluate(() => window.__mockChatGPT.setComposerText("USER_DRAFT"));
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
 
   await expect.poll(
     () => harness.page.evaluate(() => window.__sequenceRunner.getLog().some(
@@ -272,7 +272,7 @@ test("existing-ready wakes the opening response that was already generating and 
     () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.label)
   ).toBe("external-startup");
 
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await harness.waitForState("DONE", 4000);
 
   const sent = await harness.sentMessages();
@@ -313,7 +313,7 @@ test("existing-ready connection interruption suppresses wake even when Stop ling
   );
   await harness.waitForState("WAITING_FOR_INTERRUPTED_RESPONSE", 3000);
 
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await new Promise((resolve) => setTimeout(resolve, 120));
 
   expect(await harness.sentMessages()).toEqual(["OPENING_ALREADY_SENT_INTERRUPTED"]);
@@ -337,7 +337,7 @@ test("tracked generation still wakes when its turn DOM is temporarily unavailabl
     document.querySelector('[data-turn-key]')?.remove();
   });
 
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await harness.waitForSentCount(2);
 
   const sent = await harness.sentMessages();
@@ -368,7 +368,7 @@ test("ordinary startup defers behind unrelated generation without nudging it", a
   ).toBe(1);
 
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
-  await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
   await new Promise((resolve) => setTimeout(resolve, 120));
 
   expect(await harness.sentMessages()).toEqual(["UNRELATED_PRE_RUN_MESSAGE"]);
@@ -415,6 +415,7 @@ test("raising the wake delay during a response postpones the current wake", asyn
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
 
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "5");
   await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
   await harness.page.click('[data-action="start-run"]');
   await waitForTrackedGeneration(harness);
