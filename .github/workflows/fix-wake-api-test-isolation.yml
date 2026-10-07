@@ -24,18 +24,8 @@ jobs:
           from pathlib import Path
           p = Path("tests/e2e/wake.spec.js")
           text = p.read_text(encoding="utf-8")
-          old = '''  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
-          await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());'''
-          new = '''  await harness.page.evaluate(() =>
-            window.__sequenceRunner.startExistingContext(
-              "steady",
-              "autonomous",
-              false,
-              undefined,
-              undefined,
-              20
-            )
-          );'''
+          old = "  await harness.page.selectOption('[data-input=\"split-after-minutes\"]', \"20\");\n  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());"
+          new = "  await harness.page.evaluate(() =>\n    window.__sequenceRunner.startExistingContext(\n      \"steady\",\n      \"autonomous\",\n      false,\n      undefined,\n      undefined,\n      20\n    )\n  );"
           count = text.count(old)
           if count != 4:
               raise SystemExit(f"expected 4 wake-test API patterns, found {count}")
