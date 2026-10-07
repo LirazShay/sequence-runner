@@ -177,7 +177,16 @@ test("wake eligibility resets for the next tracked Assistant response", async ({
   await installWakeClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }, { type: "hold" }] });
 
-  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext(
+      "steady",
+      "autonomous",
+      false,
+      5,
+      undefined,
+      20
+    )
+  );
   await waitForTrackedGeneration(harness);
 
   await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);
