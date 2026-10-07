@@ -1,0 +1,153 @@
+name: Apply wake default update
+
+on:
+  push:
+    branches:
+      - chore/wake-default-10m
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: chore/wake-default-10m
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply minimal default change
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one occurrence, found {count}: {old!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_in_test(path, title, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              marker = f'test("{title}"'
+              start = text.find(marker)
+              if start < 0:
+                  raise SystemExit(f"{path}: test not found: {title}")
+              end = text.find('\ntest("', start + len(marker))
+              if end < 0:
+                  end = len(text)
+              block = text[start:end]
+              count = block.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one occurrence in {title!r}, found {count}: {old!r}")
+              block = block.replace(old, new, 1)
+              p.write_text(text[:start] + block + text[end:], encoding="utf-8")
+
+          replace_once("runner.js", 'const VERSION = "3.38";', 'const VERSION = "3.39";')
+          replace_once("runner.js", "LONG_WAIT_WAKE_DEFAULT_MINUTES: 5,", "LONG_WAIT_WAKE_DEFAULT_MINUTES: 10,")
+
+          replace_once("tests/e2e/wake.spec.js", 'expect(config.delay).toBe("5");', 'expect(config.delay).toBe("10");')
+          replace_once(
+              "tests/e2e/wake.spec.js",
+              'test("response that completes before five minutes is never nudged"',
+              'test("response that completes before ten minutes is never nudged"'
+          )
+          replace_once(
+              "tests/e2e/wake.spec.js",
+              'test("same active response is nudged once after five minutes without clicking Stop"',
+              'test("same active response is nudged once after ten minutes without clicking Stop"'
+          )
+
+          threshold = "await advanceWakeClock(harness, 5 * 60 * 1000 + 1000);"
+          threshold10 = "await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);"
+          for title in [
+              "same active response is nudged once after ten minutes without clicking Stop",
+              "wake inserts text before requiring Send while generation is active",
+              "occupied composer defers the wake without overwriting user text",
+              "existing-ready wakes the opening response that was already generating and preserves the pending compact contract",
+              "existing-ready connection interruption suppresses wake even when Stop lingers",
+              "tracked generation still wakes when its turn DOM is temporarily unavailable",
+              "ordinary startup defers behind unrelated generation without nudging it",
+          ]:
+              replace_in_test("tests/e2e/wake.spec.js", title, threshold, threshold10)
+
+          replace_in_test(
+              "tests/e2e/wake.spec.js",
+              "raising the wake delay during a response postpones the current wake",
+              "  await harness.page.selectOption('[data-input=\"split-after-minutes\"]', \"20\");",
+              "  await harness.page.selectOption('[data-input=\"wake-after-minutes\"]', \"5\");\n  await harness.page.selectOption('[data-input=\"split-after-minutes\"]', \"20\");"
+          )
+
+          replace_in_test(
+              "tests/e2e/split-nudge.spec.js",
+              "five-minute wake does not restart the ten-minute split clock",
+              "window.__sequenceRunner.startExistingContext()",
+              'window.__sequenceRunner.startExistingContext("steady", "autonomous", false, 5)'
+          )
+
+          replace_once(
+              "README.md",
+              "Wake defaults to 5 minutes and split defaults to 10 minutes;",
+              "Wake defaults to 10 minutes and split defaults to 10 minutes;"
+          )
+          replace_once(
+              "README.md",
+              "Omitted wake values use the 5-minute default; omitted split values use the 10-minute default.",
+              "Omitted wake values use the 10-minute default; omitted split values use the 10-minute default."
+          )
+          replace_once(
+              "README.md",
+              "The default is 5 minutes with `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`;",
+              "The default is 10 minutes with `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`;"
+          )
+          replace_once(
+              "README.md",
+              "If the 5-minute wake already fired, the split timer keeps the original episode start time, so the default split instruction is still due at total minute 10 rather than 10 minutes after the wake.",
+              "If wake is configured to fire before split, the split timer keeps the original episode start time rather than restarting after the wake."
+          )
+
+          replace_once(
+              "AGENTS.md",
+              "The wake delay is a per-run setting from 1–20 minutes (default 5). The split delay is independently configurable from 1–20 minutes (default 10).",
+              "The wake delay is a per-run setting from 1–20 minutes (default 10). The split delay is independently configurable from 1–20 minutes (default 10)."
+          )
+          replace_once(
+              "AGENTS.md",
+              "Its per-run delay must stay within 1–20 minutes and defaults to 5.",
+              "Its per-run delay must stay within 1–20 minutes and defaults to 10."
+          )
+          replace_once(
+              "AGENTS.md",
+              "Critically, split timing is attached to the continuous long-work episode rather than the replacement cycle created by an automatic wake: if wake is sent at minute 5, the default split escalation is still due at total minute 10, not minute 15.",
+              "Critically, split timing is attached to the continuous long-work episode rather than the replacement cycle created by an automatic wake: if wake is configured to fire before split, the split remains due from the original episode start rather than restarting from the wake."
+          )
+          PY
+
+      - name: Build bookmarklet
+        run: |
+          npm ci
+          npm run build:bookmarklet
+          node --check runner.js
+          npm run check:bookmarklet
+
+      - name: Remove temporary workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/apply-wake-default-10m.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Set long-response check default to 10 minutes"
+          git push origin HEAD:chore/wake-default-10m
