@@ -1,0 +1,103 @@
+name: Fix wake default regression expectations
+
+on:
+  push:
+    branches:
+      - chore/wake-default-10m
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/wake-default-10m
+
+      - name: Update directly affected regression expectations
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_count(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} occurrences, found {count}: {old!r}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          def insert_in_test(path, title, needle, insertion):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              marker = f'test("{title}"'
+              start = text.find(marker)
+              if start < 0:
+                  raise SystemExit(f"{path}: test not found: {title}")
+              end = text.find('\ntest("', start + len(marker))
+              if end < 0:
+                  end = len(text)
+              block = text[start:end]
+              count = block.count(needle)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one needle in {title!r}, found {count}")
+              block = block.replace(needle, insertion + needle, 1)
+              p.write_text(text[:start] + block + text[end:], encoding="utf-8")
+
+          replace_count("tests/e2e/core.spec.js", 'version: "3.38"', 'version: "3.39"')
+          replace_count("tests/e2e/diagnostic.spec.js", 'toBe("3.38")', 'toBe("3.39")', 2)
+          replace_count("tests/e2e/live-smoke.spec.js", 'wakeUi.delay).toBe("5")', 'wakeUi.delay).toBe("10")')
+
+          replace_count("tests/e2e/recovery.spec.js", 'afterMinutes: 5,', 'afterMinutes: 10,')
+          replace_count("tests/e2e/recovery.spec.js", 'delay: "5",', 'delay: "10",')
+
+          start_needle = "  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());\n"
+          split20 = "  await harness.page.selectOption('[data-input=\"split-after-minutes\"]', \"20\");\n"
+          for title in [
+              "same active response is nudged once after ten minutes without clicking Stop",
+              "wake inserts text before requiring Send while generation is active",
+              "occupied composer defers the wake without overwriting user text",
+              "tracked generation still wakes when its turn DOM is temporarily unavailable",
+          ]:
+              insert_in_test("tests/e2e/wake.spec.js", title, start_needle, split20)
+
+          replace_count(
+              "tests/e2e/wake.spec.js",
+              'window.__sequenceRunner.startExistingContext("steady", "autonomous", true)\n  );',
+              'window.__sequenceRunner.startExistingContext(\n      "steady",\n      "autonomous",\n      true,\n      undefined,\n      undefined,\n      20\n    )\n  );',
+              2
+          )
+          # Only the long-opening wake test needs split moved later. Restore the interruption test to its compact call.
+          p = Path("tests/e2e/wake.spec.js")
+          text = p.read_text(encoding="utf-8")
+          title = "existing-ready connection interruption suppresses wake even when Stop lingers"
+          start = text.find(f'test("{title}"')
+          end = text.find('\ntest("', start + 5)
+          block = text[start:end]
+          expanded = 'window.__sequenceRunner.startExistingContext(\n      "steady",\n      "autonomous",\n      true,\n      undefined,\n      undefined,\n      20\n    )\n  );'
+          compact = 'window.__sequenceRunner.startExistingContext("steady", "autonomous", true)\n  );'
+          if expanded not in block:
+              raise SystemExit("expanded interruption call not found")
+          block = block.replace(expanded, compact, 1)
+          p.write_text(text[:start] + block + text[end:], encoding="utf-8")
+          PY
+
+      - name: Sanity check
+        run: |
+          npm ci
+          npm run check:bookmarklet
+          node --check runner.js
+
+      - name: Remove temporary workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/fix-wake-default-tests.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Align regressions with 10-minute wake default"
+          git push origin HEAD:chore/wake-default-10m
