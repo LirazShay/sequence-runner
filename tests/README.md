@@ -99,6 +99,8 @@ Important capabilities include:
 - turn DOM replacement while retaining the same turn key;
 - final text mutation after final response UI is already visible;
 - an event timeline for exact send/generation/navigation ordering.
+- pre-existing generation before Runner startup, including existing-ready adoption versus ordinary deferral;
+- tracked-generation tests where the turn DOM disappears while the global generation signal remains active.
 
 The mock composer handles the same programmatic paste path used by the production runner.
 
