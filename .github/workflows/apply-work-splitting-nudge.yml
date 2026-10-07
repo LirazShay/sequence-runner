@@ -36,6 +36,7 @@ jobs:
         run: |
           set -o pipefail
           {
+            node scripts/fix-work-splitting-patcher.mjs
             node scripts/patch-work-splitting-nudge.mjs
             node scripts/patch-work-splitting-support.mjs
           } 2>&1 | tee work-splitting-apply.log
@@ -67,6 +68,7 @@ jobs:
 
       - name: Remove temporary patch machinery
         run: |
+          rm scripts/fix-work-splitting-patcher.mjs
           rm scripts/patch-work-splitting-nudge.mjs
           rm scripts/patch-work-splitting-support.mjs
           rm .github/workflows/apply-work-splitting-nudge.yml
