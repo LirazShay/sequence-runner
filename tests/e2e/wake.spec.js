@@ -381,3 +381,54 @@ test("ordinary startup defers behind unrelated generation without nudging it", a
   expect(sent[1]).not.toBe(DEFAULT_WAKE_MESSAGE);
   expect(sent[1]).toContain("בכל פעם שאכתוב 'תמשיך לשלב הבא'");
 });
+
+
+test("wake delay and message updates apply immediately to the active response", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "10");
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
+  await harness.page.click('[data-action="start-run"]');
+  await waitForTrackedGeneration(harness);
+
+  await advanceWakeClock(harness, 4 * 60 * 1000);
+  await harness.page.locator('[data-input="wake-message"]').fill("LIVE_WAKE_UPDATED");
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "3");
+  await harness.waitForSentCount(2);
+
+  const sent = await harness.sentMessages();
+  expect(sent[1]).toBe("LIVE_WAKE_UPDATED");
+
+  const state = await harness.page.evaluate(() => window.__sequenceRunner.getState());
+  expect(state.longWaitWake).toEqual({ afterMinutes: 3, message: "LIVE_WAKE_UPDATED" });
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "long-wait-wake-config-updated")).toBeTruthy();
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
+
+test("raising the wake delay during a response postpones the current wake", async ({ harness }) => {
+  await harness.load();
+  await installWakeClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "20");
+  await harness.page.click('[data-action="start-run"]');
+  await waitForTrackedGeneration(harness);
+
+  await advanceWakeClock(harness, 4 * 60 * 1000);
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "10");
+  await advanceWakeClock(harness, 6 * 60 * 1000);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  expect(await harness.sentMessages()).toHaveLength(1);
+
+  await advanceWakeClock(harness, 10 * 60 * 1000 + 1000);
+  await harness.waitForSentCount(2);
+  const sent = await harness.sentMessages();
+  expect(sent[1]).toBe(DEFAULT_WAKE_MESSAGE);
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});

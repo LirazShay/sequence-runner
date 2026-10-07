@@ -183,3 +183,58 @@ test("occupied composer defers split without overwriting user text", async ({ ha
 
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });
+
+
+test("split delay and message updates apply immediately to the active work episode", async ({ harness }) => {
+  await harness.load();
+  await installClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "20");
+  await harness.page.click('[data-action="start-run"]');
+  await waitForTrackedGeneration(harness);
+
+  await advanceClock(harness, 4 * 60 * 1000);
+  await harness.page.locator('[data-input="split-message"]').fill("LIVE_SPLIT_UPDATED");
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "3");
+  await harness.waitForSentCount(2);
+
+  const sent = await harness.sentMessages();
+  expect(sent[1]).toBe("LIVE_SPLIT_UPDATED");
+
+  const state = await harness.page.evaluate(() => window.__sequenceRunner.getState());
+  expect(state.longWaitSplit.afterMinutes).toBe(3);
+  expect(state.longWaitSplit.message).toBe("LIVE_SPLIT_UPDATED");
+  expect(state.longWaitSplit.state).toBe("sent");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "long-wait-split-config-updated")).toBeTruthy();
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
+
+test("changing split settings after the split was sent does not duplicate the same episode", async ({ harness }) => {
+  await harness.load();
+  await installClock(harness);
+  await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }] });
+
+  await harness.page.selectOption('[data-input="wake-after-minutes"]', "20");
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "2");
+  await harness.page.click('[data-action="start-run"]');
+  await waitForTrackedGeneration(harness);
+
+  await advanceClock(harness, 2 * 60 * 1000 + 1000);
+  await harness.waitForSentCount(2);
+
+  await harness.page.locator('[data-input="split-message"]').fill("NEXT_EPISODE_SPLIT");
+  await harness.page.selectOption('[data-input="split-after-minutes"]', "1");
+  await new Promise((resolve) => setTimeout(resolve, 160));
+
+  expect(await harness.sentMessages()).toHaveLength(2);
+  const state = await harness.page.evaluate(() => window.__sequenceRunner.getState());
+  expect(state.longWaitSplit.afterMinutes).toBe(1);
+  expect(state.longWaitSplit.message).toBe("NEXT_EPISODE_SPLIT");
+  expect(state.longWaitSplit.state).toBe("sent");
+
+  await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
+});
