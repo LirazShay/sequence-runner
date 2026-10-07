@@ -16,11 +16,12 @@ test("canonical runner completes a normal multi-step sequence", async ({ harness
   expect(sent).toHaveLength(2);
   expect(sent[0].length).toBeLessThan(2300);
   expect(sent[0]).toContain("בכל פעם שאכתוב 'תמשיך לשלב הבא'");
-  expect(sent[0]).toContain("המשך להתקדם בעבודה באופן טבעי עד נקודת עצירה הגיונית.");
-  expect(sent[0]).toContain("חלק את העבודה למקטעים לפי מטרות ותוצאות");
-  expect(sent[0]).toContain("העדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים");
+  expect(sent[0]).toContain("בצע מקטע עבודה אחד בלבד ואז עצור וחכה להודעת ההמשך");
+  expect(sent[0]).toContain("חלק אותה מראש למקטעים לפי מטרות ותוצאות");
+  expect(sent[0]).toContain("אל תמשיך אוטומטית למקטע שאחריו");
+  expect(sent[0]).toContain("פצל אותו בנקודת checkpoint בטוחה");
+  expect(sent[0]).toContain("אחרי שהגעת ל-checkpoint, עצור ואל תתחיל את המקטע הבא באותה תשובה");
   expect(sent[0]).toContain("במצב Autonomous");
-  expect(sent[0]).not.toContain("תתקדם שלב אחד בלבד");
   expect(sent[1]).toBe("תמשיך לשלב הבא");
 });
 
@@ -84,8 +85,9 @@ test("opening-message-already-sent uses a compact safety contract", async ({ har
   expect(sent[0]).toContain("סיימתי");
   expect(sent[0]).toContain("[[SEQUENCE_RUNNER_NEW_CHAT]]");
   expect(sent[0]).toContain("[[NEXT_CHAT_PROMPT]]");
+  expect(sent[0]).toContain("תשובה אחת = מקטע אחד");
   expect(sent[0]).toContain("הודעת הפתיחה הקודמת נשארת בתוקף");
-  expect(sent[0].length).toBeLessThan(900);
+  expect(sent[0].length).toBeLessThan(1100);
   expect(sent[1]).toBe("תמשיך לשלב הבא");
 
   const state = await harness.runnerState();
@@ -191,13 +193,15 @@ test("compact full contract preserves every original semantic topic", async ({ h
   const [prompt] = await harness.sentMessages();
   const requiredTopics = [
     "תמשיך לשלב הבא",
-    "התקדם שלב משמעותי אחד",
-    "מקטע עבודה משמעותי",
+    "מקטע עבודה משמעותי אחד בלבד",
+    "עצור וחכה להודעת ההמשך",
     "תתי־שלבים",
     "בדיקות ותיקונים",
-    "חלק את העבודה למקטעים לפי מטרות ותוצאות",
-    "העדף מספר קטן של מקטעים משמעותיים",
-    "נקודת checkpoint טבעית",
+    "תכנן את המשימה למקטעים משמעותיים לפי מטרות ותוצאות",
+    "אל תעבור למקטע משמעותי נוסף באותה תשובה",
+    "פצל אותו בנקודת checkpoint בטוחה",
+    "סיים כל תשובה בנקודת checkpoint טבעית",
+    "אל תתחיל את המקטע הבא באותה תשובה",
     "תוצאה משמעותית שניתן לאמת",
     "סוג עבודה שונה מהותית",
     "פעולה בעלת סיכון משמעותי",
@@ -260,12 +264,12 @@ test("work-style selector can start a Deep run", async ({ harness }) => {
   await harness.waitForState("DONE");
 
   const [firstPrompt] = await harness.sentMessages();
-  expect(firstPrompt).toContain("התקדם שלב משמעותי אחד");
-  expect(firstPrompt).toContain("מקטע עבודה משמעותי");
-  expect(firstPrompt).toContain("חלק את העבודה למקטעים לפי מטרות ותוצאות");
-  expect(firstPrompt).toContain("העדף מספר קטן של מקטעים משמעותיים על פני הרבה צעדים קטנים");
+  expect(firstPrompt).toContain("מקטע עבודה משמעותי אחד בלבד");
+  expect(firstPrompt).toContain("עצור וחכה להודעת ההמשך");
+  expect(firstPrompt).toContain("תכנן את המשימה למקטעים משמעותיים לפי מטרות ותוצאות");
+  expect(firstPrompt).toContain("אל תעבור למקטע משמעותי נוסף באותה תשובה");
+  expect(firstPrompt).toContain("פצל אותו בנקודת checkpoint בטוחה");
   expect(firstPrompt).toContain("קבע נקודות מעבר טבעיות");
-  expect(firstPrompt).not.toContain("תתקדם שלב אחד בלבד");
 
   const state = await harness.runnerState();
   expect(state.workStyle).toBe("deep");

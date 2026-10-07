@@ -119,7 +119,9 @@ test("Deep work style and Collaborative decision mode persist across automatic h
   expect(sent).toHaveLength(2);
 
   for (const prompt of sent) {
-    expect(prompt).toContain("התקדם שלב משמעותי אחד");
+    expect(prompt).toContain("מקטע עבודה משמעותי אחד בלבד");
+    expect(prompt).toContain("עצור וחכה להודעת ההמשך");
+    expect(prompt).toContain("אל תעבור למקטע משמעותי נוסף באותה תשובה");
     expect(prompt).toContain("קבע נקודות מעבר טבעיות");
     expect(prompt).toContain("מה הצ'אט הנוכחי צריך לסיים ומה הצ'אט הבא אמור לקחת");
     expect(prompt).toContain("במצב Collaborative");
