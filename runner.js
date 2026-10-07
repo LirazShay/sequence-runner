@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.37";
+    const VERSION = "3.38";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -231,7 +231,7 @@
         '<option value="custom">מותאם אישית</option>',
         '</select>',
         '<textarea data-input="wake-message" rows="3" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px">' + escapeHtml(CONFIG.LONG_WAIT_WAKE_DEFAULT_MESSAGE) + '</textarea>',
-        '<div style="font-size:10px;color:#94a3b8">הודעת הבדיקה נשלחת לכל היותר פעם אחת לכל תשובה פעילה, בלי ללחוץ Stop ובלי לדרוס טקסט שכבר הוקלד.</div>',
+        '<div style="font-size:10px;color:#94a3b8">הודעת הבדיקה נשלחת לכל היותר פעם אחת לכל תשובה פעילה, בלי ללחוץ Stop ובלי לדרוס טקסט שכבר הוקלד. שינוי זמן או הודעה בזמן ריצה נכנס לתוקף מיד אם עדיין ניתן להחיל אותו על התשובה הפעילה, ובכל מקרה חל על התשובות הבאות.</div>',
         '<div style="border-top:1px solid rgba(255,255,255,.10);padding-top:8px;margin-top:9px">',
         '<div style="font-weight:700;margin-bottom:5px">פיצול עבודה ארוכה</div>',
         '<div style="font-size:11px;color:#cbd5e1;margin-bottom:4px">שלח הוראת פיצול אחרי:</div>',
@@ -273,7 +273,7 @@
         '<option value="custom">מותאם אישית</option>',
         '</select>',
         '<textarea data-input="split-message" rows="4" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px">' + escapeHtml(CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE) + '</textarea>',
-        '<div style="font-size:10px;color:#94a3b8">ברירת המחדל היא 10 דקות. אם הודעת הבדיקה נשלחה קודם, שעון הפיצול ממשיך מהתגובה הארוכה המקורית ולא מתחיל מחדש. הוראת הפיצול נשלחת פעם אחת, בלי ללחוץ Stop ובלי לדרוס טקסט קיים.</div>',
+        '<div style="font-size:10px;color:#94a3b8">ברירת המחדל היא 10 דקות. אם הודעת הבדיקה נשלחה קודם, שעון הפיצול ממשיך מהתגובה הארוכה המקורית ולא מתחיל מחדש. הוראת הפיצול נשלחת פעם אחת, בלי ללחוץ Stop ובלי לדרוס טקסט קיים. שינוי זמן או הודעה בזמן ריצה חל מיד כל עוד הוראת הפיצול עדיין לא נשלחה; לאחר שנשלחה, ההגדרה החדשה תחול על פרק העבודה הבא.</div>',
         '</div>',
         '</div>',
         '<div data-role="diagnostic" style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
@@ -582,6 +582,173 @@
         splitThresholdReachedAt = null;
         splitDeferredReason = null;
         splitSentAt = null;
+    }
+
+    function resetWakeConfigEligibility(cycle, reason) {
+        if (
+            !cycle ||
+            cycle.wakeState === "sent" ||
+            cycle.wakeState === "sending"
+        ) {
+            return false;
+        }
+
+        const hadState =
+            cycle.wakeState !== "idle" ||
+            cycle.wakeThresholdReachedAt != null ||
+            cycle.wakeDeferredReason != null;
+
+        cycle.wakeState = "idle";
+        cycle.wakeThresholdReachedAt = null;
+        cycle.wakeDeferredReason = null;
+
+        if (hadState) {
+            record("long-wait-wake-config-reset", {
+                id: cycle.id,
+                turnKey: cycle.turnKey,
+                reason
+            });
+        }
+
+        return true;
+    }
+
+    function resetSplitConfigEligibility(reason) {
+        if (
+            splitState === "sent" ||
+            splitState === "sending"
+        ) {
+            return false;
+        }
+
+        const hadState =
+            splitState !== "idle" ||
+            splitThresholdReachedAt != null ||
+            splitDeferredReason != null;
+
+        splitState = "idle";
+        splitThresholdReachedAt = null;
+        splitDeferredReason = null;
+
+        if (hadState) {
+            record("long-wait-split-config-reset", {
+                reason,
+                startedAt: longWorkStartedAt
+            });
+        }
+
+        return true;
+    }
+
+    function updateLongWaitWakeConfig(
+        afterMinutes,
+        message,
+        source
+    ) {
+        const nextAfterMinutes =
+            normalizeWakeAfterMinutes(afterMinutes);
+        const nextMessage =
+            normalizeWakeMessage(message);
+        const delayChanged =
+            nextAfterMinutes !== selectedWakeAfterMinutes;
+        const messageChanged =
+            nextMessage !== selectedWakeMessage;
+
+        if (!delayChanged && !messageChanged) {
+            return false;
+        }
+
+        selectedWakeAfterMinutes = nextAfterMinutes;
+        selectedWakeMessage = nextMessage;
+
+        const currentResponseLocked =
+            currentCycle?.wakeState === "sent" ||
+            currentCycle?.wakeState === "sending";
+
+        if (
+            runStarted &&
+            !stopped &&
+            currentCycle &&
+            !currentResponseLocked
+        ) {
+            resetWakeConfigEligibility(
+                currentCycle,
+                "runtime-config-updated"
+            );
+        }
+
+        record("long-wait-wake-config-updated", {
+            source: source || "runtime",
+            afterMinutes: selectedWakeAfterMinutes,
+            message: selectedWakeMessage,
+            delayChanged,
+            messageChanged,
+            appliesToCurrentResponse:
+                !!currentCycle &&
+                !currentResponseLocked
+        });
+
+        renderPanel();
+
+        if (runStarted && !stopped) {
+            scheduleEvaluate();
+        }
+
+        return true;
+    }
+
+    function updateLongWaitSplitConfig(
+        afterMinutes,
+        message,
+        source
+    ) {
+        const nextAfterMinutes =
+            normalizeSplitAfterMinutes(afterMinutes);
+        const nextMessage =
+            normalizeSplitMessage(message);
+        const delayChanged =
+            nextAfterMinutes !== selectedSplitAfterMinutes;
+        const messageChanged =
+            nextMessage !== selectedSplitMessage;
+
+        if (!delayChanged && !messageChanged) {
+            return false;
+        }
+
+        selectedSplitAfterMinutes = nextAfterMinutes;
+        selectedSplitMessage = nextMessage;
+
+        const currentEpisodeLocked =
+            splitState === "sent" ||
+            splitState === "sending";
+
+        if (
+            runStarted &&
+            !stopped &&
+            !currentEpisodeLocked
+        ) {
+            resetSplitConfigEligibility(
+                "runtime-config-updated"
+            );
+        }
+
+        record("long-wait-split-config-updated", {
+            source: source || "runtime",
+            afterMinutes: selectedSplitAfterMinutes,
+            message: selectedSplitMessage,
+            delayChanged,
+            messageChanged,
+            appliesToCurrentEpisode:
+                !currentEpisodeLocked
+        });
+
+        renderPanel();
+
+        if (runStarted && !stopped) {
+            scheduleEvaluate();
+        }
+
+        return true;
     }
 
     function isDone(text) {
@@ -3236,6 +3403,40 @@
                 );
         };
 
+        const applyLiveWakeConfig = function (source) {
+            if (!runStarted || stopped) {
+                return;
+            }
+
+            const message = normalizeText(
+                wakeMessageArea?.value || ""
+            );
+
+            if (!message) {
+                return;
+            }
+
+            try {
+                updateLongWaitWakeConfig(
+                    wakeAfterMinutesSelect?.value,
+                    message,
+                    source
+                );
+            } catch (err) {
+                record("long-wait-wake-config-rejected", {
+                    source,
+                    error: err?.message || String(err || "")
+                });
+            }
+        };
+
+        wakeAfterMinutesSelect?.addEventListener(
+            "change",
+            function () {
+                applyLiveWakeConfig("panel-delay");
+            }
+        );
+
         wakeMessagePresetSelect?.addEventListener(
             "change",
             function () {
@@ -3256,12 +3457,17 @@
                     wakeMessageArea.value =
                         CONFIG.LONG_WAIT_WAKE_SHORT_MESSAGE;
                 }
+
+                applyLiveWakeConfig("panel-preset");
             }
         );
 
         wakeMessageArea?.addEventListener(
             "input",
-            syncWakePresetFromMessage
+            function () {
+                syncWakePresetFromMessage();
+                applyLiveWakeConfig("panel-message");
+            }
         );
 
         const syncSplitPresetFromMessage = function () {
@@ -3274,6 +3480,40 @@
                     splitMessageArea?.value || ""
                 );
         };
+
+        const applyLiveSplitConfig = function (source) {
+            if (!runStarted || stopped) {
+                return;
+            }
+
+            const message = normalizeText(
+                splitMessageArea?.value || ""
+            );
+
+            if (!message) {
+                return;
+            }
+
+            try {
+                updateLongWaitSplitConfig(
+                    splitAfterMinutesSelect?.value,
+                    message,
+                    source
+                );
+            } catch (err) {
+                record("long-wait-split-config-rejected", {
+                    source,
+                    error: err?.message || String(err || "")
+                });
+            }
+        };
+
+        splitAfterMinutesSelect?.addEventListener(
+            "change",
+            function () {
+                applyLiveSplitConfig("panel-delay");
+            }
+        );
 
         splitMessagePresetSelect?.addEventListener(
             "change",
@@ -3295,12 +3535,17 @@
                     splitMessageArea.value =
                         CONFIG.LONG_WAIT_SPLIT_SHORT_MESSAGE;
                 }
+
+                applyLiveSplitConfig("panel-preset");
             }
         );
 
         splitMessageArea?.addEventListener(
             "input",
-            syncSplitPresetFromMessage
+            function () {
+                syncSplitPresetFromMessage();
+                applyLiveSplitConfig("panel-message");
+            }
         );
 
         const syncStartModeControls = function () {
@@ -6594,6 +6839,34 @@
         },
         sendMessageImmediately:
             sendImmediateInjection,
+        setLongWaitWake: function (
+            afterMinutes,
+            message
+        ) {
+            return updateLongWaitWakeConfig(
+                afterMinutes == null
+                    ? selectedWakeAfterMinutes
+                    : afterMinutes,
+                message == null
+                    ? selectedWakeMessage
+                    : message,
+                "api"
+            );
+        },
+        setLongWaitSplit: function (
+            afterMinutes,
+            message
+        ) {
+            return updateLongWaitSplitConfig(
+                afterMinutes == null
+                    ? selectedSplitAfterMinutes
+                    : afterMinutes,
+                message == null
+                    ? selectedSplitMessage
+                    : message,
+                "api"
+            );
+        },
         resume:
             resumePendingAutoSend,
         queueMessage: function (
