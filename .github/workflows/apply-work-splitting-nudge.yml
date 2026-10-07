@@ -32,9 +32,13 @@ jobs:
         run: npm ci
 
       - name: Apply work splitting implementation
+        shell: bash
         run: |
-          node scripts/patch-work-splitting-nudge.mjs
-          node scripts/patch-work-splitting-support.mjs
+          set -o pipefail
+          {
+            node scripts/patch-work-splitting-nudge.mjs
+            node scripts/patch-work-splitting-support.mjs
+          } 2>&1 | tee work-splitting-apply.log
 
       - name: Build bookmarklet
         run: npm run build:bookmarklet
@@ -54,6 +58,7 @@ jobs:
         with:
           name: work-splitting-nudge-failure
           path: |
+            work-splitting-apply.log
             split-test-output.log
             test-results
             playwright-report
@@ -65,7 +70,7 @@ jobs:
           rm scripts/patch-work-splitting-nudge.mjs
           rm scripts/patch-work-splitting-support.mjs
           rm .github/workflows/apply-work-splitting-nudge.yml
-          rm -f split-test-output.log
+          rm -f work-splitting-apply.log split-test-output.log
 
       - name: Commit implementation
         run: |
