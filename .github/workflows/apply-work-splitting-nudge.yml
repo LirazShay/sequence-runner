@@ -39,6 +39,7 @@ jobs:
             node scripts/fix-work-splitting-patcher.mjs
             node scripts/patch-work-splitting-nudge.mjs
             node scripts/patch-work-splitting-support.mjs
+            node scripts/fix-work-splitting-tests.mjs
           } 2>&1 | tee work-splitting-apply.log
 
       - name: Build bookmarklet
@@ -71,6 +72,7 @@ jobs:
           rm scripts/fix-work-splitting-patcher.mjs
           rm scripts/patch-work-splitting-nudge.mjs
           rm scripts/patch-work-splitting-support.mjs
+          rm scripts/fix-work-splitting-tests.mjs
           rm .github/workflows/apply-work-splitting-nudge.yml
           rm -f work-splitting-apply.log split-test-output.log
 
