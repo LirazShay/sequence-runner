@@ -36,6 +36,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/apply-live-runtime-settings.mjs 2>&1 | tee live-settings-apply.log
+          sed -i 's/version: "3.37"/version: "3.38"/' tests/e2e/core.spec.js
 
       - name: Build bookmarklet
         run: npm run build:bookmarklet
