@@ -175,6 +175,13 @@ Regular new chat:
 button[aria-label="New chat"]
 ```
 
+Composer mode group:
+```js
+[role="group"][aria-label="Composer mode"]
+```
+
+When that group is present, the visible `Chat` button is selected only when `aria-pressed="true"`; automatic handoff must confirm or select it before sending the first prompt in the fresh chat.
+
 For the two new-chat selectors, select the visible element and, for a Project, require an exact `New chat in <current project>` label.
 
 Selectors that did NOT work in the tested UI and must not be reintroduced without a fresh DOM probe:
@@ -305,6 +312,7 @@ Rules:
 - Outside a Project, use the visible general New chat action.
 - After clicking New chat, wait for the URL to change before touching the composer. This avoids the old-composer SPA race observed during probing.
 - Only after navigation has completed may the new empty visible composer be used.
+- Before inserting the handoff prompt, if the verified `Composer mode` toggle is present, require the visible `Chat` button to have `aria-pressed="true"`. If another mode such as Work is selected, click Chat and wait for that selected state; fail safely if the toggle exists but Chat cannot be selected. A UI variant with no mode toggle may continue normally.
 - Treat the extracted continuation text as a new task in the fresh chat: wrap it with the same new-task opening format and standard runner continuation/completion/handoff contract so later completion and rollovers still work.
 - Do not construct Project conversation URLs manually when a verified UI action is available.
 
@@ -529,6 +537,7 @@ Important behavioral cases include:
 - a Project handoff selects the exact current Project's new-chat action
 - a non-Project handoff selects the visible general New chat action
 - handoff navigation waits for the URL change before writing to the composer
+- a fresh-chat handoff selects and confirms Chat composer mode before sending when the Chat/Work mode toggle is present
 - the handoff prompt reinstalls the runner contract so a second rollover remains possible
 - initial prompt is sent once
 - one completed non-final response causes exactly one continuation

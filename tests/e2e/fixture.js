@@ -25,6 +25,11 @@ const mockHtml = fs.readFileSync(path.join(mockRoot, "index.html"));
 const runnerPath = path.join(repoRoot, "runner.js");
 const bookmarkletPath = path.join(repoRoot, "runner.min.js");
 const canonicalRunnerSource = fs.readFileSync(runnerPath, "utf8");
+const runnerVersionMatch = canonicalRunnerSource.match(/\bconst VERSION = "([^"]+)";/);
+if (!runnerVersionMatch) {
+  throw new Error("Could not read the Sequence Runner version from runner.js");
+}
+export const expectedRunnerVersion = runnerVersionMatch[1];
 
 function replaceSingleTiming(source, from, to) {
   const matches = source.split(from).length - 1;

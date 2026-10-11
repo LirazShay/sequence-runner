@@ -91,6 +91,7 @@ The current ChatGPT web UI was probed before implementation. The runner currentl
 - Project breadcrumb: `nav[aria-label="Breadcrumb"] a[href$="/project"]`
 - Project new-chat action: `button[aria-label^="New chat in "]`
 - Regular new-chat action: visible `button[aria-label="New chat"]`
+- Composer mode group: `[role="group"][aria-label="Composer mode"]`; when present, `Chat` must be the visible button with `aria-pressed="true"` before an automatic handoff prompt is sent.
 
 Fallback selectors are included for a few controls.
 
@@ -308,6 +309,7 @@ Behavior:
 - Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition.
+- Before the handoff prompt is inserted, the runner checks the verified Chat/Work `Composer mode` toggle when it exists. If Work (or any non-Chat state) is active, it clicks `Chat` and waits until that button reports `aria-pressed="true"`; if the toggle exists but Chat cannot be selected, the handoff fails instead of sending in the wrong mode. UI variants without that toggle continue normally.
 - The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.
 - That first handoff message also includes a chat-title instruction: when the task contains a clear chat number, use `צ'אט N` with that number; otherwise use a short descriptive title based on the work the fresh chat is planned to perform. This instruction is added only to chats opened automatically by handoff.
 - Runner counters, step limits and queued messages remain in the same in-page runner session across the SPA navigation.

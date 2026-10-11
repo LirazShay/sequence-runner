@@ -9,6 +9,8 @@
   const routeLabel = document.querySelector('[data-mock-role="route"]');
   const eventLog = document.querySelector("#mock-event-log");
   const responseTextInput = document.querySelector('[data-mock-input="response-text"]');
+  const chatModeButton = document.querySelector('[data-mock-mode="chat"]');
+  const workModeButton = document.querySelector('[data-mock-mode="work"]');
 
   const timers = new Set();
 
@@ -24,7 +26,8 @@
     turnCounter: 0,
     newChatCounter: 0,
     activeGenerations: 0,
-    navigationClearDelayMs: 0
+    navigationClearDelayMs: 0,
+    composerMode: "chat"
   };
 
   function schedule(callback, delayMs = 0) {
@@ -63,6 +66,27 @@
     }
     renderEventLog();
     return entry;
+  }
+
+  function setComposerMode(mode, source = "mock", shouldRecord = true) {
+    const selected = mode === "work" ? "work" : "chat";
+    state.composerMode = selected;
+
+    chatModeButton?.setAttribute(
+      "aria-pressed",
+      selected === "chat" ? "true" : "false"
+    );
+    workModeButton?.setAttribute(
+      "aria-pressed",
+      selected === "work" ? "true" : "false"
+    );
+
+    if (shouldRecord) {
+      record("composer-mode-changed", {
+        mode: selected,
+        source
+      });
+    }
   }
 
   function renderEventLog() {
@@ -454,7 +478,8 @@
 
     record("send", {
       text,
-      stopVisible: !!currentStopButton()
+      stopVisible: !!currentStopButton(),
+      composerMode: state.composerMode
     });
 
     clearComposer();
@@ -539,6 +564,7 @@
     state.events = [];
     state.turnCounter = 0;
     state.newChatCounter = 0;
+    setComposerMode("chat", "reset", false);
     state.navigationClearDelayMs = Number(options.navigationClearDelayMs || 0);
     state.defaultResponse = {
       type: "normal",
@@ -595,6 +621,7 @@
         turnCount: conversation.querySelectorAll("[data-turn-key]").length,
         navigationClearDelayMs: state.navigationClearDelayMs,
         path: location.pathname,
+        composerMode: state.composerMode,
         composerText: normalize(composer.innerText || composer.textContent || ""),
         staleComposerTexts: [...document.querySelectorAll("form.stale-composer [data-composer-markdown]")]
           .map((element) => normalize(element.textContent))
@@ -617,6 +644,17 @@
   });
 
   sendButton.addEventListener("click", sendCurrentMessage);
+
+  chatModeButton?.addEventListener("click", () => {
+    record("composer-mode-click", { mode: "chat" });
+    setComposerMode("chat", "button");
+  });
+
+  workModeButton?.addEventListener("click", () => {
+    record("composer-mode-click", { mode: "work" });
+    setComposerMode("work", "button");
+  });
+
   composerForm.addEventListener("submit", (event) => {
     event.preventDefault();
     sendCurrentMessage();

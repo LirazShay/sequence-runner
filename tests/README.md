@@ -94,6 +94,7 @@ Important capabilities include:
 - preferred Markdown Assistant wrapper and search-unit fallback wrapper;
 - `Stop` and `Regenerate response` controls;
 - regular and Project New Chat actions;
+- a Chat/Work composer-mode toggle with `aria-pressed` state for handoff-mode regressions;
 - delayed SPA-style chat clearing after navigation;
 - stale duplicate composers;
 - turn DOM replacement while retaining the same turn key;
@@ -119,6 +120,7 @@ button[aria-label="Regenerate response"]
 nav[aria-label="Breadcrumb"] a[href$="/project"]
 button[aria-label^="New chat in "]
 button[aria-label="New chat"]
+[role="group"][aria-label="Composer mode"]
 ```
 
 When a real ChatGPT DOM probe changes this contract, update production selectors and the mock together as appropriate. Do not invent unverified selectors merely to make the fixture convenient.

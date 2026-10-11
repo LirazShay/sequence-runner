@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.39";
+    const VERSION = "3.40";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -16,6 +16,7 @@
         HANDOFF_PROMPT_END: "[[/NEXT_CHAT_PROMPT]]",
         NAVIGATION_TIMEOUT_MS: 15000,
         HANDOFF_MIN_READY_MS: 1000,
+        COMPOSER_MODE_TIMEOUT_MS: 5000,
         STABLE_MS: 900,
         FAST_RESPONSE_FALLBACK_MS: 2500,
         DELIVERY_RETRY_START_TIMEOUT_MS: 5000,
@@ -44,6 +45,7 @@
         userMessage: '[data-user-message-bubble="true"]',
         assistantMessage: '[data-markdown-text-style="assistant-message"]',
         composer: '[contenteditable="true"][data-composer-markdown]',
+        composerModeGroup: '[role="group"][aria-label="Composer mode"]',
         sendButton: 'button[aria-label="Send"],button[aria-label="שלח"]',
         stopButton: 'button[aria-label="Stop"],button[aria-label="עצור"]',
         regenerateButton: 'button[aria-label="Regenerate response"]'
@@ -61,6 +63,8 @@
         'aside[role="alert"]',
         '[role="status"] .text-chatgpt-recovery',
         '[contenteditable="true"][data-composer-markdown]',
+        '[role="group"][aria-label="Composer mode"]',
+        '[role="group"][aria-label="Composer mode"] button[aria-pressed]',
         '#prompt-textarea',
         'button[aria-label="Send"]',
         'button[aria-label="Stop"]',
@@ -1373,6 +1377,124 @@
         };
     }
 
+    function getComposerModeGroup() {
+        return getLastVisibleElement(
+            SELECTORS.composerModeGroup
+        );
+    }
+
+    function getComposerModeButton(group, modeName) {
+        if (!group) {
+            return null;
+        }
+
+        return [
+            ...group.querySelectorAll("button")
+        ].find(function (candidate) {
+            const label = normalizeText(
+                candidate.innerText ||
+                candidate.textContent ||
+                ""
+            );
+
+            return (
+                label === modeName &&
+                isElementVisible(candidate)
+            );
+        }) || null;
+    }
+
+    async function ensureChatComposerMode() {
+        const group = getComposerModeGroup();
+
+        if (!group) {
+            record("composer-mode-toggle-not-present", {
+                requestedMode: "Chat"
+            });
+
+            return {
+                available: false,
+                switched: false
+            };
+        }
+
+        const chatButton =
+            getComposerModeButton(
+                group,
+                "Chat"
+            );
+
+        if (!chatButton) {
+            throw new Error(
+                "The Composer mode toggle is present, but the Chat button was not found."
+            );
+        }
+
+        if (
+            chatButton.getAttribute(
+                "aria-pressed"
+            ) === "true"
+        ) {
+            record("composer-mode-chat-confirmed", {
+                switched: false
+            });
+
+            return {
+                available: true,
+                switched: false
+            };
+        }
+
+        if (chatButton.disabled) {
+            throw new Error(
+                "The Chat composer-mode button is disabled."
+            );
+        }
+
+        record("composer-mode-switching-to-chat");
+        chatButton.click();
+
+        const selectedChatButton =
+            await waitUntil(
+                function () {
+                    const currentGroup =
+                        getComposerModeGroup();
+
+                    const currentChatButton =
+                        getComposerModeButton(
+                            currentGroup,
+                            "Chat"
+                        );
+
+                    return (
+                        currentChatButton &&
+                        currentChatButton.getAttribute(
+                            "aria-pressed"
+                        ) === "true"
+                    )
+                        ? currentChatButton
+                        : null;
+                },
+                CONFIG.COMPOSER_MODE_TIMEOUT_MS,
+                50
+            );
+
+        if (!selectedChatButton) {
+            throw new Error(
+                "Chat composer mode did not become selected before the handoff prompt was sent."
+            );
+        }
+
+        record("composer-mode-chat-confirmed", {
+            switched: true
+        });
+
+        return {
+            available: true,
+            switched: true
+        };
+    }
+
     async function openFreshChatForHandoff() {
         const target =
             findNewChatTarget();
@@ -1475,11 +1597,15 @@
             );
         }
 
+        const composerMode =
+            await ensureChatComposerMode();
+
         return {
             kind: target.kind,
             project: target.project,
             oldUrl,
             newUrl,
+            composerMode,
             composerReused:
                 composer === oldComposer
         };
@@ -5406,7 +5532,11 @@
                     toUrl:
                         navigation.newUrl,
                     composerReused:
-                        navigation.composerReused
+                        navigation.composerReused,
+                    composerModeAvailable:
+                        navigation.composerMode.available,
+                    composerModeSwitched:
+                        navigation.composerMode.switched
                 }
             );
 
