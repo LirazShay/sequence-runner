@@ -570,6 +570,14 @@ For code changes:
 
 When GitHub tools are available, work directly in the repository instead of asking the user to manually copy changes.
 
+### CI is verification, not a code-editing mechanism
+
+- Do not create or modify a temporary GitHub Actions workflow whose purpose is to edit or patch repository files, generate a development commit, or push ordinary implementation changes.
+- GitHub Actions is an independent verification/gating mechanism. Implement changes through normal repository edits and commits on a feature branch, verify them with the available local/execution environment, then let CI validate the resulting commit.
+- Do not use repeated `push -> CI -> patch -> push` cycles as the normal debugging loop when equivalent checks can be run before pushing.
+- A workflow may write repository contents only when the repository's intended product/automation design explicitly requires that write behavior and the task itself is to build or maintain that automation. Never use that exception as a workaround for ordinary code editing.
+- Prefer targeted tests first, then the required full regression before PR/merge, so CI normally acts as the final independent gate rather than the primary development loop.
+
 Before overwriting an existing file:
 
 - fetch the latest version,
