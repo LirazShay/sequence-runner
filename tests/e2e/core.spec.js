@@ -1,4 +1,4 @@
-import { test, expect } from "./fixture.js";
+import { test, expect, expectedRunnerVersion } from "./fixture.js";
 
 test("canonical runner completes a normal multi-step sequence", async ({ harness }) => {
   await harness.load();
@@ -308,7 +308,7 @@ test("committed bookmarklet artifact boots the same runner in a browser", async 
   }));
 
   expect(result).toEqual({
-    version: "3.39",
+    version: expectedRunnerVersion,
     state: "READY_TO_START",
     panel: true
   });

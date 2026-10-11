@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect } from "./fixture.js";
+import { test, expect, expectedRunnerVersion } from "./fixture.js";
 
 async function waitForTrackedGeneration(harness) {
   await expect.poll(
@@ -52,7 +52,7 @@ test("diagnostic snapshot is versioned, self-contained and non-mutating during a
 
   expect(result.after).toEqual(result.before);
   expect(result.snapshot.diagnosticSchemaVersion).toBe(1);
-  expect(result.snapshot.version).toBe("3.39");
+  expect(result.snapshot.version).toBe(expectedRunnerVersion);
   expect(result.snapshot.stateName).toBe("GENERATING");
   expect(result.snapshot.currentTurnKey).toBeTruthy();
   expect(result.snapshot.selectorCount).toBeGreaterThanOrEqual(14);
@@ -131,7 +131,7 @@ test("panel diagnostic action downloads the same versioned JSON contract", async
   const parsed = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
 
   expect(parsed.diagnosticSchemaVersion).toBe(1);
-  expect(parsed.runner.version).toBe("3.39");
+  expect(parsed.runner.version).toBe(expectedRunnerVersion);
   expect(parsed.page.url).toContain("mock.local");
   expect(parsed.selectors['[data-turn-key]']).toBeTruthy();
   expect(parsed.privacy.intentionallyExcluded).toContain("localStorage");

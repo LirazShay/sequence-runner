@@ -51,6 +51,44 @@ test("valid handoff opens a fresh regular chat and continues with a wrapped new-
   expect(sends[1].at).toBeGreaterThanOrEqual(ready.at);
 });
 
+test("handoff forces Chat composer mode before sending in the fresh chat", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: handoffResponse("CHAT_MODE_HANDOFF") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  const workButton = harness.page.getByRole("button", {
+    name: "Work",
+    exact: true
+  });
+  await workButton.click();
+  await expect(workButton).toHaveAttribute("aria-pressed", "true");
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE");
+
+  const events = await harness.events();
+  const readyIndex = events.findIndex((event) => event.type === "new-chat-ready");
+  const chatModeClickIndex = events.findIndex(
+    (event) => event.type === "composer-mode-click" && event.mode === "chat"
+  );
+  const sendIndices = events
+    .map((event, index) => event.type === "send" ? index : -1)
+    .filter((index) => index >= 0);
+
+  expect(readyIndex).toBeGreaterThanOrEqual(0);
+  expect(chatModeClickIndex).toBeGreaterThan(readyIndex);
+  expect(sendIndices).toHaveLength(2);
+  expect(sendIndices[1]).toBeGreaterThan(chatModeClickIndex);
+  expect(events[sendIndices[1]].composerMode).toBe("chat");
+
+  const mockState = await harness.page.evaluate(() => window.__mockChatGPT.getState());
+  expect(mockState.composerMode).toBe("chat");
+});
+
 test("handoff reads the authoritative full assistant selection instead of a later markdown fragment", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
