@@ -27,7 +27,9 @@ jobs:
           cache: npm
 
       - name: Apply changes
-        run: python3 scripts/apply-handoff-chat-mode.py
+        run: |
+          python3 scripts/apply-handoff-chat-mode.py
+          python3 scripts/fix-runner-version-test-contract.py
 
       - name: Install dependencies
         run: npm ci
@@ -46,6 +48,7 @@ jobs:
         run: |
           rm .github/workflows/apply-handoff-chat-mode.yml
           rm scripts/apply-handoff-chat-mode.py
+          rm scripts/fix-runner-version-test-contract.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
