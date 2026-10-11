@@ -577,6 +577,7 @@ When GitHub tools are available, work directly in the repository instead of aski
 - Do not use repeated `push -> CI -> patch -> push` cycles as the normal debugging loop when equivalent checks can be run before pushing.
 - A workflow may write repository contents only when the repository's intended product/automation design explicitly requires that write behavior and the task itself is to build or maintain that automation. Never use that exception as a workaround for ordinary code editing.
 - Prefer targeted tests first, then the required full regression before PR/merge, so CI normally acts as the final independent gate rather than the primary development loop.
+- When CI reports a failure, error, or meaningful warning, do not immediately patch only the surfaced symptom and push again. Perform root-cause analysis first: determine what happened and why, check whether the same weakness exists in similar code/tests/configuration, and identify a reasonable prevention or hardening step before continuing. Scale the investigation to the signal; trivial/transient infrastructure noise does not justify disproportionate work, but evidence of a systemic problem must not be waived with a local-only fix.
 
 Before overwriting an existing file:
 
