@@ -22,3 +22,7 @@ Code, identifiers and code comments: English.
 - Do not switch to GitHub Actions, Base64 transport, Git packs, remote workspaces or another ad-hoc transport merely because the current sandbox lacks direct `git push`, network access or credentials.
 - If a large-file write through the GitHub connector is blocked, do not change the workflow. Keep working through GitHub and make the change as small and focused as possible; one blocked call is not evidence that GitHub access is broken.
 - After an interruption, compaction, handoff or recovery from a summary, re-read this file, `AGENTS_RULES.md`, `README.md`, the current branch/head and the relevant code from GitHub before resuming. Treat previous local artifacts as cache until their base is verified against GitHub.
+
+## Connector note
+
+A successful small `update_file` on this exact `AGENTS.md` proves that the filename/path itself is not categorically blocked. Treat previous full-file blocks as payload-specific unless stronger evidence appears.
