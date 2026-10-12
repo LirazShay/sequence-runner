@@ -28,6 +28,7 @@ Also read when relevant:
 - `docs/agent/RUNNER_INVARIANTS.md` for `runner.js`, state-machine behavior, sending, completion, handoff, wake/split, intermediate messages, limits, restart, or pause/resume.
 - `docs/agent/DOM_AND_DIAGNOSTICS.md` for selectors, composer insertion, ChatGPT UI integration, navigation, or diagnostics.
 - `docs/agent/TESTING_AND_BUILD.md` for production-code changes, tests, version bumps, bookmarklet generation, build verification, regression work, or CI validation.
+- `docs/agent/PROJECT_CONTEXT.md` for architecture, roadmap, product-direction, or broader refactor decisions.
 
 Do not read every detailed policy file by default when the task does not touch that area. The purpose of this split is to keep mandatory context small while preserving domain-specific rules.
 
