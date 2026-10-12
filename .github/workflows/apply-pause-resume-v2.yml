@@ -1,0 +1,60 @@
+name: Apply Pause Resume V2
+
+on:
+  push:
+    branches:
+      - feature/pause-resume-runner
+    paths:
+      - .github/workflows/apply-pause-resume-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/pause-resume-runner
+          fetch-depth: 0
+
+      - name: Apply deterministic patch
+        run: python scripts/apply-pause-resume.py
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      - name: Regenerate bookmarklet
+        run: npm run build:bookmarklet
+
+      - name: Run focused pause and split tests
+        run: npx playwright test tests/e2e/pause-resume.spec.js tests/e2e/split-nudge.spec.js
+
+      - name: Run full regression suite
+        run: npm test
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/apply-pause-resume.yml
+          rm .github/workflows/apply-pause-resume-v2.yml
+          rm scripts/apply-pause-resume.py
+          git add -A
+          git commit -m "feat: add pause and resume runner"
+          git push origin HEAD:feature/pause-resume-runner
