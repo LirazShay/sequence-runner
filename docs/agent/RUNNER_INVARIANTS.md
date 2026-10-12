@@ -86,6 +86,8 @@ For the currently verified UI, a `Regenerate response` action inside the tracked
 
 Once final UI appears, wait until Assistant text remains unchanged for `STABLE_MS` before evaluation. This is a DOM-settle guard, not a replacement completion heuristic.
 
+Stable-text timing remains a fallback when final UI is unavailable. With final UI present, the short stability window protects against evaluating an incomplete final DOM snapshot.
+
 Do not leave a turn in `WAITING_FOR_RESPONSE` when final response UI is already present; use `WAITING_FOR_STABLE_RESPONSE` only while final text is settling.
 
 If a tracked turn explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. If a queued intermediate message is already due it may supersede that terminated cycle; otherwise stop with a diagnosable error.
@@ -122,6 +124,8 @@ Otherwise keep waiting for recovery. Never promote a bare interrupted `סיימ�
 
 Do not terminate a valid generation merely because an arbitrary wall-clock timeout elapsed.
 
+Status/diagnostic notices after a long wait are allowed, but they must not terminate the run.
+
 The wake nudge is one-shot per tracked Assistant response:
 
 - delay range 1–20 minutes; default 10
@@ -156,6 +160,10 @@ For ordinary existing/new-task startup, unrelated pre-existing generation may de
 Do not implement automatic resend loops. Manual stop remains the safe escape hatch.
 
 ## Automatic handoff
+
+The first Runner prompt installs a machine-readable handoff contract. Keep the full opening contract concise by removing repetition, never by dropping a semantic topic. The compact existing-ready contract may be smaller because the full opening already exists in chat, but it must still reinforce completion and handoff semantics.
+
+Regression coverage must protect the work-style, segmentation, checkpoint, decision, completion, handoff, rollover, durable-source, and `NEXT_CHAT_PROMPT` rules.
 
 A valid handoff response ends with:
 
@@ -195,7 +203,7 @@ Loading the script prepares the panel/runner but must not send until explicit St
 Supported start modes:
 
 - existing-context: original continuation behavior
-- existing-ready: peer mode, not a checkbox; first send is a compact safety contract beginning with `תמשיך לשלב הבא`, then later cycles use plain continuation
+- existing-ready: shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer mode, not a checkbox; first send is a compact safety contract beginning with `תמשיך לשלב הבא`, then later cycles use plain continuation
 - new-task: embeds user-supplied task text in the opening prompt
 
 Existing-ready must not alter automatic handoff behavior.
@@ -213,6 +221,8 @@ If automatic continuation is blocked by composer text or external/manual activit
 The panel must expose queued intermediate messages, not only a count. Users must be able to edit text, change relative schedule, delete items, and reorder messages sharing the same target boundary without silently changing scheduling semantics across different boundaries.
 
 ## Management panel, limits, terminal reset
+
+The panel reports operational chat/run metrics and supports a safe step limit configured either as an absolute Runner-response number or as N additional responses from the current point.
 
 - panel body scrolls internally
 - expanded panel is resizable and size is persisted
