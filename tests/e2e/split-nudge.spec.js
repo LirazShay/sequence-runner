@@ -49,7 +49,7 @@ test("start panel exposes configurable split defaults and presets", async ({ har
     };
   });
 
-  expect(config.delay).toBe("10");
+  expect(config.delay).toBe("15");
   expect(config.delayOptions).toEqual(
     Array.from({ length: 20 }, (_, index) => String(index + 1))
   );
@@ -93,7 +93,7 @@ test("custom split delay and message are used for the active work", async ({ har
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });
 
-test("five-minute wake does not restart the ten-minute split clock", async ({ harness }) => {
+test("five-minute wake does not restart the fifteen-minute split clock", async ({ harness }) => {
   await harness.load();
   await installClock(harness);
   await harness.setScenario({ responses: [{ type: "hold" }, { type: "hold" }, { type: "hold" }] });
@@ -112,7 +112,7 @@ test("five-minute wake does not restart the ten-minute split clock", async ({ ha
   ).toBe("wake");
   await waitForTrackedGeneration(harness);
 
-  await advanceClock(harness, 10 * 60 * 1000 + 1000);
+  await advanceClock(harness, 15 * 60 * 1000 + 1000);
   await harness.waitForSentCount(3);
 
   sent = await harness.sentMessages();
