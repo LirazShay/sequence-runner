@@ -8,7 +8,7 @@ on:
       - .github/workflows/temp-build-bookmarklet.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -34,10 +34,12 @@ jobs:
           new Function(code);
           console.log(`runner.min.js bytes=${Buffer.byteLength(text)} sha256=${require('crypto').createHash('sha256').update(text).digest('hex')}`);
           NODE
-      - name: Upload generated bookmarklet
-        uses: actions/upload-artifact@v4
-        with:
-          name: runner-min-v3.43
-          path: runner.min.js
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit generated bookmarklet
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.min.js
+          if ! git diff --cached --quiet; then
+            git commit -m "build: regenerate bookmarklet for v3.43"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
