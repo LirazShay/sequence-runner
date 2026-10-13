@@ -43,7 +43,9 @@ Current protocol:
 
 - continuation prompt: `תמשיך לשלב הבא`
 - completion marker: `סיימתי`
+- wait-for-user marker: `ממתין לך`
 - bare final `סיימתי` means the entire sequence is complete
+- final `ממתין לך` means the sequence is unfinished but automatic continuation must pause until user input or explicit manual resume
 - a valid final handoff block takes precedence over local chat completion
 
 The longer-term direction is a generic sequence/workflow runner, not permanent hard-coding to one Hebrew workflow.
@@ -58,6 +60,8 @@ The longer-term direction is a generic sequence/workflow runner, not permanent h
 
 - Prefer KISS and deterministic behavior.
 - Normal automatic Runner traffic preserves one sent prompt per newly completed Assistant turn.
+- Never turn an explicit wait-for-user response into another automatic continuation.
+- Bound automatic continuation with stagnation/runaway safety guards so a broken conversational loop cannot run indefinitely.
 - Never overwrite user composer text.
 - Never click ChatGPT Stop as part of normal automatic continuation, handoff, wake/split, or immediate-message behavior unless an explicitly designed user action says otherwise.
 - Preserve an immediate manual stop path.

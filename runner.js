@@ -5,11 +5,14 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.42";
+    const VERSION = "3.43";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
         DONE_KEYWORD: "סיימתי",
+        WAIT_FOR_USER_KEYWORD: "ממתין לך",
+        STAGNATION_REPEAT_LIMIT: 2,
+        MAX_AUTO_CONTINUATIONS_WITHOUT_EXTERNAL_ACTIVITY: 100,
         HANDOFF_OUTER_START: "[[SEQUENCE_RUNNER_NEW_CHAT]]",
         HANDOFF_OUTER_END: "[[/SEQUENCE_RUNNER_NEW_CHAT]]",
         HANDOFF_PROMPT_START: "[[NEXT_CHAT_PROMPT]]",
@@ -360,6 +363,10 @@
     let pendingAutoSendLocked = false;
     let handoffInProgress = false;
     let handoffCount = 0;
+    let waitingForUser = null;
+    let lastOrdinaryResponseText = null;
+    let stagnationRepeatCount = 0;
+    let automaticContinuationStreak = 0;
     const injectionQueue = [];
     let lastStatusMessage = null;
     let lastStatusColor = null;
@@ -589,6 +596,25 @@
         splitSentAt = null;
     }
 
+    function resetContinuationSafety(reason) {
+        const hadState =
+            automaticContinuationStreak > 0 ||
+            stagnationRepeatCount > 0 ||
+            !!lastOrdinaryResponseText;
+
+        if (hadState && reason) {
+            record("continuation-safety-reset", {
+                reason,
+                automaticContinuationStreak,
+                stagnationRepeatCount
+            });
+        }
+
+        automaticContinuationStreak = 0;
+        stagnationRepeatCount = 0;
+        lastOrdinaryResponseText = null;
+    }
+
     function resetWakeConfigEligibility(cycle, reason) {
         if (
             !cycle ||
@@ -756,7 +782,7 @@
         return true;
     }
 
-    function isDone(text) {
+    function getFinalProtocolLine(text) {
         const lines = normalizeText(text)
             .split(/\n+/)
             .map(function (line) {
@@ -765,17 +791,30 @@
             .filter(Boolean);
 
         if (!lines.length) {
-            return false;
+            return "";
         }
 
-        const lastLine = lines
+        return lines
             .at(-1)
             .replace(/^[-•▪◦]\s*/, "")
             .replace(/^[`*_~]+|[`*_~]+$/g, "")
             .trim();
+    }
 
-        return new RegExp(
+    function isDone(text) {
+        const lastLine = getFinalProtocolLine(text);
+
+        return !!lastLine && new RegExp(
             "^" + CONFIG.DONE_KEYWORD + "[.!?]?$",
+            "u"
+        ).test(lastLine);
+    }
+
+    function isWaitingForUser(text) {
+        const lastLine = getFinalProtocolLine(text);
+
+        return !!lastLine && new RegExp(
+            "^" + CONFIG.WAIT_FOR_USER_KEYWORD + "[.!?]?$",
             "u"
         ).test(lastLine);
     }
@@ -813,6 +852,9 @@
             getCheckpointInstruction(),
             "",
             getDecisionInstruction(decisionMode),
+            "",
+            "אם אינך יכול להתקדם בלי מידע, החלטה, אישור, קובץ או פעולה שחייבים להגיע מהמשתמש, אל תחזור שוב על אותה בקשה ואל תכתוב 'סיימתי'. הסבר בקצרה מה חסר וסיים בשורה נפרדת:",
+            CONFIG.WAIT_FOR_USER_KEYWORD,
             "",
             "אל תכתוב 'סיימתי' בסוף שלב רגיל. אם כל המשימה הכוללת הסתיימה ואין עוד עבודה להמשך, סיים בשורה נפרדת:",
             "סיימתי",
@@ -855,6 +897,7 @@
             "תמשיך לשלב הבא.",
             workInstruction,
             decisionInstruction,
+            "אם אי אפשר להתקדם בלי מידע, החלטה, אישור, קובץ או פעולה מהמשתמש, הסבר בקצרה מה חסר וסיים בשורה נפרדת: " + CONFIG.WAIT_FOR_USER_KEYWORD,
             "אל תכתוב 'סיימתי' בסוף שלב רגיל. אם כל המשימה הסתיימה ואין עוד עבודה, סיים בשורה נפרדת:",
             "סיימתי",
             "אם הצ'אט הזה הסתיים אבל המשימה ממשיכה בצ'אט חדש, כתוב סיימתי ואז בסוף:",
@@ -2128,6 +2171,12 @@
                 (pendingAutoSend
                     ? "כן"
                     : "לא") + '</strong>',
+            '<span style="color:#94a3b8">ממתין לך</span><strong>' +
+                (waitingForUser
+                    ? "כן"
+                    : "לא") + '</strong>',
+            '<span style="color:#94a3b8">רצף המשכים</span><strong>' +
+                formatInteger(automaticContinuationStreak) + '</strong>',
             '<span style="color:#94a3b8">זמן ריצה</span><strong>' +
                 (runnerStartedAt == null
                     ? "—"
@@ -2210,15 +2259,23 @@
         }
 
         if (resumeButton) {
+            const canResume =
+                (pendingAutoSend || waitingForUser) &&
+                !stopped;
+            const resumeLocked =
+                pendingAutoSendLocked ||
+                sendLocked ||
+                immediateSendLocked;
+
             resumeButton.style.display =
-                pendingAutoSend &&
-                !stopped
-                    ? ""
-                    : "none";
-            resumeButton.disabled =
-                pendingAutoSendLocked;
+                canResume ? "" : "none";
+            resumeButton.textContent =
+                waitingForUser
+                    ? "המשך עכשיו"
+                    : "המשך אוטומציה";
+            resumeButton.disabled = resumeLocked;
             resumeButton.style.opacity =
-                pendingAutoSendLocked
+                resumeLocked
                     ? ".55"
                     : "1";
         }
@@ -3162,6 +3219,19 @@
             : null;
     }
 
+    function diagnosticWaitingForUser() {
+        return waitingForUser
+            ? {
+                  reason: waitingForUser.reason,
+                  enteredAt: waitingForUser.enteredAt,
+                  baselineTurnKeys:
+                      waitingForUser.baselineTurnKeys || [],
+                  assistantTextPreview:
+                      waitingForUser.assistantTextPreview || null
+              }
+            : null;
+    }
+
     function diagnosticHypotheses(snapshot) {
         const observations = [];
         const currentTurn = snapshot.currentTurn;
@@ -3227,7 +3297,8 @@
             stopVisible &&
             snapshot.runner.runStarted &&
             !snapshot.runner.currentCycle &&
-            !snapshot.runner.pendingAutoSend
+            !snapshot.runner.pendingAutoSend &&
+            !snapshot.runner.waitingForUser
         ) {
             observations.push({
                 code: "UNTRACKED_ACTIVE_GENERATION",
@@ -3246,6 +3317,14 @@
             observations.push({
                 code: "NO_STOP_BUT_RUNNER_STILL_WAITING",
                 message: "No visible Stop control exists while the runner is still in a response-waiting state."
+            });
+        }
+
+        if (snapshot.runner.waitingForUser) {
+            observations.push({
+                code: "AUTOMATION_PAUSED_FOR_USER",
+                message: "Automatic continuation is intentionally paused until user input or manual resume.",
+                reason: snapshot.runner.waitingForUser.reason
             });
         }
 
@@ -3340,11 +3419,14 @@
                 currentCycle: diagnosticCycleSnapshot(currentCycle),
                 completedResponseCount,
                 continuationCount,
+                automaticContinuationStreak,
+                stagnationRepeatCount,
                 sentPromptCount: cycleSeq,
                 injectionSentCount,
                 queuedIntermediateMessageCount: injectionQueue.length,
                 queuedIntermediateMessages: diagnosticQueuedMessages(),
                 pendingAutoSend: diagnosticPendingAutoSend(),
+                waitingForUser: diagnosticWaitingForUser(),
                 handoffInProgress,
                 handoffCount,
                 stepLimit: {
@@ -3789,7 +3871,7 @@
         )?.addEventListener(
             "click",
             function () {
-                resumePendingAutoSend(
+                resumeAutomation(
                     true
                 ).catch(function (err) {
                     updateStatus(
@@ -4886,6 +4968,10 @@
         pendingAutoSendLocked = false;
         handoffInProgress = false;
         handoffCount = 0;
+        waitingForUser = null;
+        automaticContinuationStreak = 0;
+        stagnationRepeatCount = 0;
+        lastOrdinaryResponseText = null;
         lastStatusMessage = null;
         lastStatusColor = null;
 
@@ -5067,6 +5153,7 @@
         sendLocked = false;
 
         resetLongWorkSplitTracking("external-turn-adopted");
+        resetContinuationSafety("external-turn-adopted");
 
         currentCycle = {
             id:
@@ -5229,6 +5316,85 @@
         );
     }
 
+    function enterAutomationPause(
+        reason,
+        stateName,
+        statusMessage,
+        assistantText
+    ) {
+        waitingForUser = {
+            reason,
+            enteredAt: Date.now(),
+            baselineTurnKeys:
+                normalizeTurnKeySnapshot(),
+            assistantTextPreview:
+                assistantText
+                    ? normalizeText(assistantText).slice(0, 500)
+                    : null
+        };
+
+        currentCycle = null;
+        sendLocked = false;
+
+        record("automation-paused", {
+            reason,
+            stateName,
+            automaticContinuationStreak,
+            stagnationRepeatCount
+        });
+
+        setState(
+            stateName,
+            statusMessage,
+            "#b45309"
+        );
+
+        renderPanel();
+        return true;
+    }
+
+    function adoptWaitingUserTurn(trigger) {
+        if (
+            stopped ||
+            currentCycle ||
+            !waitingForUser
+        ) {
+            return false;
+        }
+
+        const pause = waitingForUser;
+        const turn = findNewTurn(
+            new Set(pause.baselineTurnKeys)
+        );
+
+        if (!turn) {
+            return false;
+        }
+
+        waitingForUser = null;
+
+        const adopted = adoptExternalTurn(
+            pause.baselineTurnKeys,
+            trigger,
+            null,
+            "automation-resumed-by-user-turn",
+            turn,
+            {
+                preservePendingAutoSend:
+                    pendingAutoSend?.label === "first",
+                statusMessage:
+                    "👤 זוהתה הודעת משתמש חדשה; ממשיך ממנה בלי לשלוח המשך מיותר."
+            }
+        );
+
+        if (!adopted) {
+            waitingForUser = pause;
+        }
+
+        renderPanel();
+        return adopted;
+    }
+
     function deferAutoSend(
         prompt,
         label,
@@ -5352,6 +5518,67 @@
         }
     }
 
+    async function resumeAutomation(manual) {
+        if (!waitingForUser) {
+            return resumePendingAutoSend(manual);
+        }
+
+        if (adoptWaitingUserTurn("manual-resume")) {
+            return true;
+        }
+
+        if (
+            stopped ||
+            currentCycle ||
+            sendLocked ||
+            immediateSendLocked
+        ) {
+            return false;
+        }
+
+        if (getComposerText()) {
+            setState(
+                state,
+                "⚠️ יש טקסט בתיבת ChatGPT. שלח או נקה אותו לפני המשך ידני.",
+                "#b45309"
+            );
+            return false;
+        }
+
+        if (getStopButton()) {
+            setState(
+                state,
+                "⏳ ChatGPT עדיין מגיב. ממתין לסיום לפני המשך ידני.",
+                "#b45309"
+            );
+            return false;
+        }
+
+        const pause = waitingForUser;
+        waitingForUser = null;
+        resetContinuationSafety("manual-resume");
+
+        record("automation-resumed-manually", {
+            reason: pause.reason
+        });
+
+        renderPanel();
+
+        if (pendingAutoSend?.label === "first") {
+            return resumePendingAutoSend(manual);
+        }
+
+        return !!(await sendPrompt(
+            CONFIG.REGULAR_PROMPT,
+            "continue",
+            {
+                deferWhenBlocked: true,
+                deferBaselineTurnKeys:
+                    pause.baselineTurnKeys
+            }
+        ));
+    }
+
     async function sendImmediateInjection(text, options) {
         const message = normalizeText(text);
         const opts = options || {};
@@ -5467,12 +5694,17 @@
                 }
             }
 
-            if (
-                source !== "long-wait-wake" &&
-                source !== "long-wait-split"
-            ) {
+            const isAutomaticNudge =
+                source === "long-wait-wake" ||
+                source === "long-wait-split";
+
+            if (!isAutomaticNudge) {
                 resetLongWorkSplitTracking(
                     "immediate-message"
+                );
+                waitingForUser = null;
+                resetContinuationSafety(
+                    "immediate-user-message"
                 );
             }
 
@@ -5700,6 +5932,18 @@
         });
 
         sendButton.click();
+
+        if (label === "continue") {
+            automaticContinuationStreak++;
+        } else if (
+            label === "first" ||
+            label === "injection" ||
+            label === "handoff"
+        ) {
+            resetContinuationSafety(
+                "runner-" + label
+            );
+        }
 
         if (label === "injection") {
             injectionSentCount++;
@@ -6201,6 +6445,40 @@
         return true;
     }
 
+    function updateStagnationGuard(cycle, text) {
+        const normalized = normalizeText(text);
+
+        if (!normalized) {
+            lastOrdinaryResponseText = null;
+            stagnationRepeatCount = 0;
+            return false;
+        }
+
+        if (
+            cycle.label === "continue" &&
+            lastOrdinaryResponseText === normalized
+        ) {
+            stagnationRepeatCount++;
+        } else {
+            stagnationRepeatCount = 0;
+        }
+
+        lastOrdinaryResponseText = normalized;
+
+        record("stagnation-check", {
+            id: cycle.id,
+            label: cycle.label,
+            repeatCount: stagnationRepeatCount,
+            threshold:
+                CONFIG.STAGNATION_REPEAT_LIMIT
+        });
+
+        return (
+            stagnationRepeatCount >=
+            CONFIG.STAGNATION_REPEAT_LIMIT
+        );
+    }
+
     function completeCycle(cycle, text, options) {
         if (
             stopped ||
@@ -6225,6 +6503,8 @@
 
         const responseDone =
             isDone(text);
+        const responseWaitingForUser =
+            isWaitingForUser(text);
 
         const handoff =
             options?.handoff ||
@@ -6235,6 +6515,8 @@
             turnKey: cycle.turnKey,
             textLength: text.length,
             done: responseDone,
+            waitingForUser:
+                responseWaitingForUser,
             handoffRequested:
                 handoff.requested,
             handoffValid:
@@ -6277,6 +6559,16 @@
             if (handoff.requested) {
                 record(
                     "handoff-deferred-for-injection",
+                    {
+                        injectionId:
+                            dueInjection.id
+                    }
+                );
+            }
+
+            if (responseWaitingForUser) {
+                record(
+                    "wait-for-user-deferred-for-injection",
                     {
                         injectionId:
                             dueInjection.id
@@ -6358,6 +6650,16 @@
             return;
         }
 
+        if (responseWaitingForUser) {
+            enterAutomationPause(
+                "assistant-request",
+                "WAITING_FOR_USER",
+                "⏸ ChatGPT ממתין לקלט ממך; האוטומציה לא תשלח המשך עד שתשלח הודעה או תלחץ “המשך עכשיו”.",
+                text
+            );
+            return;
+        }
+
         if (
             pendingAutoSend?.label ===
             "first"
@@ -6388,6 +6690,35 @@
                 });
             }, CONFIG.CONTINUE_DELAY_MS);
 
+            return;
+        }
+
+        if (updateStagnationGuard(cycle, text)) {
+            enterAutomationPause(
+                "stagnation",
+                "STALLED",
+                "⏸ אותה תשובה התקבלה שוב בלי התקדמות. האוטומציה נעצרה כדי למנוע לולאה; שלח הודעה או לחץ “המשך עכשיו”.",
+                text
+            );
+            return;
+        }
+
+        if (
+            automaticContinuationStreak >=
+            CONFIG.MAX_AUTO_CONTINUATIONS_WITHOUT_EXTERNAL_ACTIVITY
+        ) {
+            record("runaway-fuse-triggered", {
+                limit:
+                    CONFIG.MAX_AUTO_CONTINUATIONS_WITHOUT_EXTERNAL_ACTIVITY,
+                automaticContinuationStreak
+            });
+
+            enterAutomationPause(
+                "runaway-fuse",
+                "SAFETY_PAUSED",
+                "⏸ האוטומציה הגיעה לגבול הבטיחות של רצף המשכים ללא קלט חיצוני. בדוק את המצב ושלח הודעה או לחץ “המשך עכשיו”.",
+                text
+            );
             return;
         }
 
@@ -6839,6 +7170,16 @@
 
             if (
                 !currentCycle &&
+                waitingForUser
+            ) {
+                adoptWaitingUserTurn(
+                    "waiting-observer"
+                );
+                return;
+            }
+
+            if (
+                !currentCycle &&
                 pendingAutoSend
             ) {
                 resumePendingAutoSend(
@@ -6943,6 +7284,10 @@
         resetLongWorkSplitTracking(
             "run-start"
         );
+        resetContinuationSafety(
+            "run-start"
+        );
+        waitingForUser = null;
 
         runStarted = true;
         runnerStartedAt = Date.now();
@@ -7048,6 +7393,19 @@
                     selectedSkipFirstMessage,
                 workStyle: selectedWorkStyle,
                 decisionMode: selectedDecisionMode,
+                waitingForUser:
+                    waitingForUser
+                        ? {
+                              reason:
+                                  waitingForUser.reason,
+                              enteredAt:
+                                  waitingForUser.enteredAt,
+                              assistantTextPreview:
+                                  waitingForUser.assistantTextPreview
+                          }
+                        : null,
+                automaticContinuationStreak,
+                stagnationRepeatCount,
                 longWaitWake: {
                     afterMinutes:
                         selectedWakeAfterMinutes,
@@ -7104,6 +7462,10 @@
                     completed:
                         completedResponseCount,
                     continuationCount,
+                    automaticContinuationStreak,
+                    stagnationRepeatCount,
+                    waitingForUser:
+                        !!waitingForUser,
                     runtimeMs:
                         runnerStartedAt == null
                             ? 0
@@ -7234,7 +7596,7 @@
             );
         },
         resume:
-            resumePendingAutoSend,
+            resumeAutomation,
         queueMessage: function (
             text,
             afterResponses
@@ -7273,7 +7635,8 @@
         clearQueuedMessages:
             clearQueuedInjections,
         parseHandoff,
-        isDone
+        isDone,
+        isWaitingForUser
     });
 
     // Backward-compatible alias for the earlier test/debug name.

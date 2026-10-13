@@ -13,14 +13,17 @@ Current loop:
 3. wait until that response is complete,
 4. inspect only that newly completed Assistant response,
 5. stop on true completion,
-6. otherwise send exactly one continuation,
-7. repeat.
+6. pause when the Assistant explicitly needs user/external input,
+7. otherwise send exactly one continuation,
+8. repeat.
 
 Current protocol:
 
 - continuation prompt: `תמשיך לשלב הבא`
 - completion marker: `סיימתי`
+- wait-for-user marker: `ממתין לך`
 - a bare final `סיימתי` means the entire sequence is complete
+- a final `ממתין לך` means the sequence is unfinished but cannot safely progress without user/external input; automatic continuation must pause
 - `סיימתי` immediately before a valid final handoff block means only the current chat is complete; the handoff takes precedence
 
 Work style and decision mode are independent per-run prompt contracts:
@@ -30,8 +33,11 @@ Work style and decision mode are independent per-run prompt contracts:
 - if the selected segment becomes too large, stop at a safe checkpoint and leave the remainder for the next continuation
 - `autonomous`: choose the best reasonable option and continue; ask only when essential information cannot be inferred or approval is required
 - `collaborative`: significant ambiguous choices become checkpoints; routine/safely inferable choices do not
+- when user/external input is genuinely required, explain what is missing and end with final `ממתין לך` instead of repeatedly asking while the Runner keeps continuing
 - preserve selected work style and decision mode across automatic handoff
 - chat rollover policy remains separate from checkpoint/decision wording
+
+All three opening modes must install the same wait-for-user semantics. The full existing-context/new-task contracts may use the full wording and existing-ready may use a compact form, but none may omit the meaning of final `ממתין לך`.
 
 ## State-machine invariant
 
@@ -46,14 +52,39 @@ START
   -> EVALUATE
        -> DONE: STOP
        -> HANDOFF: OPEN NEW CHAT -> SEND HANDOFF PROMPT
-       -> NOT DONE: SEND NEXT
+       -> WAIT_FOR_USER: PAUSE AUTOMATIC SENDS
+       -> STAGNATION/RUNAWAY: SAFETY PAUSE
+       -> CONTINUE: SEND NEXT
 ```
 
 Core invariant:
 
-> Normal automatic runner sends preserve one sent prompt per newly completed Assistant turn.
+> Normal automatic runner sends preserve one sent prompt per newly completed Assistant turn, except that an explicit wait-for-user or safety pause must never be converted into another automatic continuation.
 
 Do not replace this with timer logic such as “if ChatGPT looks idle, send again”.
+
+## Wait-for-user and runaway safety
+
+Wait-for-user is an active, recoverable Runner state, not terminal completion and not an error.
+
+- Recognize `ממתין לך` only as the final non-empty protocol line, with the same light punctuation/Markdown tolerance used for completion. Mentioning those words earlier in prose must not pause the run.
+- On final `ממתין לך`, keep the Runner mounted, clear the active cycle, and suppress automatic continuation.
+- Capture the current turn snapshot when the pause begins.
+- If the user sends a newer message after that snapshot, adopt the new external turn and evaluate its Assistant response. Do not insert a redundant `תמשיך לשלב הבא` first.
+- Expose an explicit manual **המשך עכשיו** / `resume()` escape hatch for cases where the blocker was resolved outside the chat; it may send exactly one normal continuation after normal composer/generation safety checks.
+- A due user-queued intermediate message retains its existing boundary precedence and may supersede the wait marker.
+- Handoff and true completion retain their existing semantics; wait-for-user is only for unfinished work that genuinely cannot progress.
+- Handoff into a fresh chat must reinstall the wait-for-user contract along with the ordinary completion/handoff contract.
+
+The Runner must also defend itself if the Assistant fails to use the wait marker correctly:
+
+- detect repeated identical normalized ordinary Assistant responses across automatic continuations and enter a recoverable `STALLED` safety pause instead of sending forever,
+- retain a high hard fuse for consecutive automatic continuations without external activity so a varied runaway loop is still bounded,
+- real external/user activity, a fresh run, explicit user immediate message, handoff/start/injection boundaries, or manual resume reset the relevant continuation-safety streak,
+- automatic wake/split messages are not user/external progress and must not silently reset the runaway protection,
+- diagnostics must expose the pause reason and safety counters so a loop stop can be investigated.
+
+The stagnation breaker is defense in depth, not the primary semantic protocol. Do not replace the explicit wait marker with fuzzy natural-language classification.
 
 ## Send safety
 
@@ -78,7 +109,7 @@ All use the immediate composer/send path and safely supersede the currently trac
 
 Do not use substring matching such as `text.includes("סיימתי")`; text like `עדיין לא סיימתי` must not complete the run.
 
-Completion is determined from the final non-empty line of the current Assistant response, subject to valid handoff precedence.
+Completion and wait-for-user are determined from the final non-empty line of the current Assistant response, subject to valid handoff precedence.
 
 The Stop button is a strong generation signal, but very fast responses may complete without the runner observing it.
 
@@ -118,7 +149,7 @@ Do not evaluate arbitrary partial content. Recover a handoff only when:
 - the prompt-end marker is the final response text,
 - the only missing handoff marker is the final outer `[[/SEQUENCE_RUNNER_NEW_CHAT]]`.
 
-Otherwise keep waiting for recovery. Never promote a bare interrupted `סיימתי` to global completion. A deferred first Runner send may yield to a newer external turn only when that turn contains an unambiguous safe handoff.
+Otherwise keep waiting for recovery. Never promote a bare interrupted `סיימתי` or `ממתין לך` to a final protocol decision while the response is known to be interrupted. A deferred first Runner send may yield to a newer external turn only when that turn contains an unambiguous safe handoff.
 
 ## Long-running responses
 
@@ -153,7 +184,7 @@ The long-work split escalation is one-shot per continuous long-work episode:
 
 Startup must use the same tracked-response machinery rather than a separate busy-wait loop.
 
-In `existing-ready` mode, if ChatGPT is already generating when Runner starts, adopt that in-flight response as an external startup cycle so wake, interruption, completion, and handoff rules still apply. Do not count that observed pre-run response as a Runner response. Keep the compact first safety contract pending until it is actually sent or completion/handoff makes it unnecessary; wake or explicit immediate send must not silently discard it.
+In `existing-ready` mode, if ChatGPT is already generating when Runner starts, adopt that in-flight response as an external startup cycle so wake, interruption, completion, handoff and wait-for-user rules still apply. Do not count that observed pre-run response as a Runner response. Keep the compact first safety contract pending until it is actually sent or completion/handoff makes it unnecessary; wake or explicit immediate send must not silently discard it.
 
 For ordinary existing/new-task startup, unrelated pre-existing generation may defer the first Runner send but must not receive an automatic wake. Wake tracking must survive temporary loss/replacement of the tracked turn DOM.
 
@@ -161,9 +192,9 @@ Do not implement automatic resend loops. Manual stop remains the safe escape hat
 
 ## Automatic handoff
 
-The first Runner prompt installs a machine-readable handoff contract. Keep the full opening contract concise by removing repetition, never by dropping a semantic topic. The compact existing-ready contract may be smaller because the full opening already exists in chat, but it must still reinforce completion and handoff semantics.
+The first Runner prompt installs the continuation, completion, wait-for-user and handoff contract. Keep the full opening contract concise by removing repetition, never by dropping a semantic topic. The compact existing-ready contract may be smaller because the full opening already exists in chat, but it must still reinforce all four semantics.
 
-Regression coverage must protect the work-style, segmentation, checkpoint, decision, completion, handoff, rollover, durable-source, and `NEXT_CHAT_PROMPT` rules.
+Regression coverage must protect the work-style, segmentation, checkpoint, decision, wait-for-user, completion, handoff, rollover, durable-source, and `NEXT_CHAT_PROMPT` rules.
 
 A valid handoff response ends with:
 
@@ -181,6 +212,7 @@ Rules:
 - handoff is not global completion
 - a `סיימתי` line immediately before the valid block marks only the current chat segment complete
 - bare final `סיימתי` is reserved for true end-of-sequence completion
+- final `ממתין לך` is reserved for unfinished work that genuinely requires user/external input and must not be used as a substitute for a handoff
 - if another chat is ready/assigned/still has work, the response must not end with bare `סיימתי`
 - choose handoff proactively when a fresh chat materially improves focus/precision/continuation quality; do not hand off merely because an ordinary step completed
 - NEXT_CHAT_PROMPT must be minimal but sufficient; prefer a durable-source pointer over duplicating recoverable state
@@ -188,12 +220,12 @@ Rules:
 - handoff block must be final content and NEXT_CHAT_PROMPT must be non-empty
 - malformed markers are an error, not ordinary continuation
 - explicit step-limit safety has highest priority
-- a due user-queued intermediate message keeps its existing boundary precedence over valid handoff
+- a due user-queued intermediate message keeps its existing boundary precedence over valid handoff/wait-for-user
 - in a Project, use the exact current-Project New Chat action; outside a Project, use the visible general New Chat action
 - after clicking New Chat, wait for URL change before touching the composer
 - only use the new empty visible composer after navigation completes
 - if the verified Composer mode toggle exists, select/confirm visible `Chat` (`aria-pressed="true"`) before sending; fail safely if Chat cannot be selected; absence of the toggle remains compatible
-- treat extracted continuation text as a new task in the fresh chat and reinstall the standard runner contract so later rollovers still work
+- treat extracted continuation text as a new task in the fresh chat and reinstall the standard runner contract so later rollovers/waits still work
 - do not construct Project conversation URLs manually when verified UI actions exist
 
 ## Start modes and intermediate messages
@@ -202,17 +234,17 @@ Loading the script prepares the panel/runner but must not send until explicit St
 
 Supported start modes:
 
-- existing-context: original continuation behavior
-- existing-ready: shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer mode, not a checkbox; first send is a compact safety contract beginning with `תמשיך לשלב הבא`, then later cycles use plain continuation
-- new-task: embeds user-supplied task text in the opening prompt
+- existing-context: original continuation behavior with the full continuation/completion/wait/handoff contract
+- existing-ready: shown to the user as `המשימה והודעת הפתיחה כבר נשלחו בצ׳אט`; this is a peer mode, not a checkbox; first send is a compact safety contract beginning with `תמשיך לשלב הבא`, then later cycles use plain continuation; the compact contract must still include wait-for-user semantics
+- new-task: embeds user-supplied task text in the opening prompt plus the same full continuation/completion/wait/handoff contract
 
-Existing-ready must not alter automatic handoff behavior.
+Existing-ready must not alter automatic handoff or wait-for-user behavior.
 
 Intermediate messages may be queued for the next safe boundary, queued for N additional completed Runner responses, or explicitly sent immediately by the user while ChatGPT is responding.
 
-Immediate send is a user-only override. It must use the normal composer/send path, never click Stop, safely supersede the old tracked cycle, and track the new sent message as active.
+Immediate send is a user-only override. It must use the normal composer/send path, never click Stop, safely supersede the old tracked cycle, and track the new sent message as active. An explicit user immediate message counts as external activity for runaway-protection reset purposes; automatic wake/split does not.
 
-At the same boundary, explicit step-limit safety outranks intermediate messages; a due user-queued intermediate message outranks ordinary completion/handoff processing according to existing boundary precedence.
+At the same boundary, explicit step-limit safety outranks intermediate messages; a due user-queued intermediate message outranks ordinary completion/handoff/wait processing according to existing boundary precedence.
 
 Queued messages must preserve one-send/one-completed-turn and must not cause duplicate continuation sends.
 
@@ -228,10 +260,11 @@ The panel reports operational chat/run metrics and supports a safe step limit co
 - expanded panel is resizable and size is persisted
 - minimizing collapses height rather than leaving an empty shell
 - place controls by user utility/frequency: start config, live metrics, intermediate messages, run limits, long-running-response controls, diagnostics last unless a concrete usability reason overrides this
+- the panel exposes a wait/safety-pause state and an explicit manual resume action without converting it into a terminal stop
 - step limit is a boundary between completed responses and must never interrupt active generation
-- changing/clearing a limit must not create duplicate sends or violate one-send/one-turn
+- changing/clearing limits does not create duplicate sends or violate one-send/one-turn
 - after DONE, STOPPED, or ERROR, the mounted runner must support a fresh run without reinjection
-- restart clears run-specific processed-turn keys, queues, pending sends, counters, and limits; restart observers/timers exactly once; preserve panel layout preferences
+- restart clears counters, limits, queues, pending sends, wait/safety state, continuation-safety counters, and processed-turn tracking; restart observers/timers exactly once; preserve panel layout preferences
 
 ## Manual stop
 

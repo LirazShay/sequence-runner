@@ -48,6 +48,7 @@ function buildFastTestRunnerSource() {
   source = replaceSingleTiming(source, "SEND_BUTTON_READY_TIMEOUT_MS: 3000", "SEND_BUTTON_READY_TIMEOUT_MS: 120");
   source = replaceSingleTiming(source, "STABLE_MS: 900", "STABLE_MS: 120");
   source = replaceSingleTiming(source, "FAST_RESPONSE_FALLBACK_MS: 2500", "FAST_RESPONSE_FALLBACK_MS: 180");
+  source = replaceSingleTiming(source, "MAX_AUTO_CONTINUATIONS_WITHOUT_EXTERNAL_ACTIVITY: 100", "MAX_AUTO_CONTINUATIONS_WITHOUT_EXTERNAL_ACTIVITY: 4");
   source = replaceSingleTiming(source, "UI_REFRESH_MS: 1000", "UI_REFRESH_MS: 50");
   source = replaceSingleTiming(source, "WATCHDOG_MS: 400", "WATCHDOG_MS: 20");
   source = replaceSingleTiming(source, "CONTINUE_DELAY_MS: 350", "CONTINUE_DELAY_MS: 10");
