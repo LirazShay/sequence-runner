@@ -32,8 +32,23 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
+      - name: Build bookmarklet for verification
+        run: npm run build:bookmarklet
+
+      - name: Run focused composer transaction tests
+        run: npx playwright test tests/e2e/composer-transaction.spec.js
+
       - name: Run regression suite
         run: npm test
+
+      - name: Upload generated bookmarklet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-runner-bookmarklet
+          path: runner.min.js
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Upload failure evidence
         if: failure()
