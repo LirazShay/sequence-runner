@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -34,6 +36,19 @@ jobs:
 
       - name: Build bookmarklet for verification
         run: npm run build:bookmarklet
+
+      - name: Commit generated bookmarklet when needed
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --quiet -- runner.min.js; then
+            echo "runner.min.js already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.min.js
+          git commit -m "Rebuild bookmarklet"
+          git push origin HEAD:${GITHUB_HEAD_REF}
 
       - name: Run focused composer transaction tests
         run: npx playwright test tests/e2e/composer-transaction.spec.js
