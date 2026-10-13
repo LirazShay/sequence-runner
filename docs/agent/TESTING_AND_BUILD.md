@@ -70,8 +70,10 @@ Regression coverage must protect at least these behavior classes:
 - adopted pre-run responses are not counted as Runner responses
 - compact first safety contract survives wake/immediate-message supersession until sent or made unnecessary by completion/handoff
 - ordinary startup waits behind unrelated pre-existing generation without nudging it
+- all three opening modes install the same natural wait-for-user semantics even when existing-ready uses compact wording
+- automatic handoff reinstalls the wait-for-user contract in the fresh chat
 
-### One-send/one-turn and completion
+### One-send/one-turn, wait and completion
 
 - initial prompt sends once
 - one completed non-final response causes exactly one continuation
@@ -79,8 +81,21 @@ Regression coverage must protect at least these behavior classes:
 - a processed turn cannot be processed twice
 - `עדיין לא סיימתי` does not stop the workflow
 - a response whose true final completion line is `סיימתי` stops the workflow
+- final `ממתין לך` pauses automatic continuation without marking the sequence done
+- `ממתין לך` appearing before later response text does not pause; only the final non-empty protocol line does
+- after a wait pause, a newer user turn is adopted directly and no redundant continuation is inserted first
+- explicit manual resume from a wait pause sends at most one ordinary continuation after normal safety checks
 - a valid final handoff after `סיימתי` performs handoff rather than global stop
 - malformed handoff fails safely instead of silently continuing
+
+### Runaway protection
+
+- repeated identical normalized Assistant responses across automatic continuations trip the stagnation circuit breaker before an unbounded loop forms
+- stagnation is a recoverable safety pause, not completion and not a fatal Runner error
+- varied responses that evade exact-repeat detection are still bounded by the hard consecutive-auto-continuation fuse
+- external/user activity and explicit manual recovery reset the relevant continuation-safety state
+- automatic wake/split activity does not masquerade as external progress and reset the runaway fuse
+- diagnostics expose pause reason and continuation-safety counters
 
 ### Composer and intermediate messages
 
@@ -90,7 +105,7 @@ Regression coverage must protect at least these behavior classes:
 - user composer text blocks/defer automatic send rather than being overwritten or causing fatal failure
 - pending automatic send resumes after composer becomes empty and ChatGPT is idle
 - an intermediate message scheduled after N responses fires at the correct boundary
-- a due intermediate message keeps its intended precedence over ordinary completion/handoff
+- a due intermediate message keeps its intended precedence over ordinary completion/handoff/wait processing
 - step-limit safety retains higher precedence
 - message management can edit text/schedule, delete, and reorder same-boundary items without corrupting cross-boundary semantics
 
@@ -112,7 +127,7 @@ Regression coverage must protect at least these behavior classes:
 - Retry does not increment Runner send/continuation counters
 - missing/failed/repeated timeout stops with a diagnosable error rather than looping
 - exact connection interruption recovers only the narrowly valid partial handoff shape
-- bare interrupted `סיימתי` never becomes global completion
+- bare interrupted `סיימתי` or `ממתין לך` never becomes a final protocol decision while recovery UI says the response is partial
 - deferred first send yields to a newer external turn only for an unambiguous safe handoff
 
 ### Handoff/navigation
@@ -121,15 +136,16 @@ Regression coverage must protect at least these behavior classes:
 - non-Project handoff selects visible general New Chat
 - navigation waits for URL change before writing to the new composer
 - fresh-chat handoff selects/confirms Chat mode when the Chat/Work toggle exists
-- handoff prompt reinstalls the Runner contract so another rollover remains possible
+- handoff prompt reinstalls the Runner contract so another rollover or wait remains possible
 
 ### Panel, limits, restart and diagnostics
 
 - panel section ordering preserves the intended utility hierarchy
+- wait/safety pause exposes manual resume while keeping the Runner live
 - explicit step limit is enforced at response boundaries, never by interrupting generation
 - changing/clearing limits does not create duplicate sends
 - after DONE, STOPPED, or ERROR, a new run can start without reinjecting the script
-- restart clears counters, limits, queues, pending sends, and processed-turn tracking
+- restart clears counters, limits, queues, pending sends, wait/safety state, continuation-safety counters, and processed-turn tracking
 - restart does not duplicate observers/watchdogs or erase persisted panel layout preferences
 - diagnostic snapshot is non-mutating and preserves partial capture errors rather than failing wholesale
 
