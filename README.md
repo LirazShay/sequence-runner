@@ -15,17 +15,21 @@ The runner turns a repeated manual workflow:
 2. Wait for the assistant to finish.
 3. Inspect only the new assistant response.
 4. If the response is complete, stop.
-5. If the response requests a new-chat handoff, open a fresh chat in the same Project when applicable, transfer the handoff prompt and continue there.
-6. Otherwise send the continuation prompt once.
-7. Repeat.
+5. If the response explicitly needs information, a decision, approval, a file or another action from the user, pause automatic continuation and wait for the user.
+6. If the response requests a new-chat handoff, open a fresh chat in the same Project when applicable, transfer the handoff prompt and continue there.
+7. Otherwise send the continuation prompt once.
+8. Repeat.
 
 The current configuration uses:
 
-- Initial instruction: a compact continuation/completion/handoff contract that preserves the full original semantics without repeated prose; existing-ready uses an even shorter safety contract.
+- Initial instruction: a compact continuation/completion/wait/handoff contract that preserves the full original semantics without repeated prose; existing-ready uses an even shorter safety contract.
 - Continuation instruction: `תמשיך לשלב הבא`
 - Completion marker: `סיימתי`
+- Wait-for-user marker: `ממתין לך`
 
 A bare final completion marker is accepted only at the end of the newly completed assistant response, rather than anywhere in the conversation. If the current chat segment is complete but the sequence must continue in a new chat, the assistant writes `סיימתי` and then the handoff block; the final handoff block takes precedence over local chat completion.
+
+When unfinished work genuinely cannot proceed without user/external input, the assistant explains what is missing and ends with a separate final line `ממתין לך`. The runner then remains live but sends no continuation until the user sends a new message or explicitly chooses **המשך עכשיו**.
 
 ## Product idea
 
@@ -43,7 +47,9 @@ It opens the door to:
 - Execution logs and diagnostics.
 - Future packaging as a small browser extension or userscript instead of a raw bookmarklet/script.
 
-The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. Three deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, the one-shot configurable long-running-response wake nudge, and the one-shot configurable long-work split escalation. Wake defaults to 10 minutes and split defaults to 10 minutes; both delays are independently selectable from 1–20 minutes and both messages can be chosen from presets or edited freely. These runtime controls stay live after the run starts: valid edits take effect immediately when the current response/work episode has not already consumed that one-shot action, and always affect future responses/episodes. An automatic wake does not restart the split clock.
+The key product principle is that normal automatic runner traffic preserves one sent instruction per newly completed assistant turn. An explicit wait-for-user response is a deliberate exception to the old “not done means continue” rule: unfinished work may be paused rather than automatically continued. The engine also has two defense-in-depth runaway guards: repeated identical responses trigger a recoverable stagnation pause, and a high consecutive-auto-continuation fuse bounds varied loops that evade exact-repeat detection.
+
+Three deliberate exceptions may send while ChatGPT is still responding without clicking Stop: an explicit user-triggered **Send now** action, the one-shot configurable long-running-response wake nudge, and the one-shot configurable long-work split escalation. Wake defaults to 10 minutes and split defaults to 15 minutes; both delays are independently selectable from 1–20 minutes and both messages can be chosen from presets or edited freely. These runtime controls stay live after the run starts: valid edits take effect immediately when the current response/work episode has not already consumed that one-shot action, and always affect future responses/episodes. An automatic wake does not restart the split clock.
 
 ## Work style and decision mode
 
@@ -61,6 +67,8 @@ Both styles use the same core rule: one Assistant response should execute one me
 - **Autonomous** (default) — choose the best reasonable option from the goal and available evidence and continue. Ask only when essential information cannot reasonably be inferred or explicit user approval is required.
 - **Collaborative** — when a significant choice has multiple reasonable alternatives and materially affects the next work, stop at a checkpoint, show the options plus a recommendation, and wait for the user. Routine or safely inferable technical choices should not cause a stop.
 
+If either mode reaches a point that genuinely requires user/external input before any valid progress is possible, the shared opening contract tells the assistant to explain the blocker naturally and end with `ממתין לך`. That wait protocol is independent of work style and decision mode.
+
 Checkpoint structure and chat rollover remain separate concerns. This change does not attempt to define a new formula for when to open a fresh chat; the existing rollover contract remains in force.
 
 The word `שלב` and the continuation command `תמשיך לשלב הבא` remain part of the protocol. Both the selected work style and decision mode are preserved automatically across an automatic handoff.
@@ -72,7 +80,7 @@ __sequenceRunner.startExistingContext("deep", "autonomous")
 __sequenceRunner.startWithTask("TASK_TEXT", "steady", "collaborative")
 ```
 
-Unknown or omitted work-style/decision values safely fall back to `steady` and `autonomous`. Wake and split settings can optionally be supplied programmatically as trailing arguments: `startExistingContext(workStyle, decisionMode, skipFirstMessage, wakeAfterMinutes, wakeMessage, splitAfterMinutes, splitMessage)` and `startWithTask(taskText, workStyle, decisionMode, wakeAfterMinutes, wakeMessage, splitAfterMinutes, splitMessage)`. Omitted wake values use the 10-minute default; omitted split values use the 10-minute default.
+Unknown or omitted work-style/decision values safely fall back to `steady` and `autonomous`. Wake and split settings can optionally be supplied programmatically as trailing arguments: `startExistingContext(workStyle, decisionMode, skipFirstMessage, wakeAfterMinutes, wakeMessage, splitAfterMinutes, splitMessage)` and `startWithTask(taskText, workStyle, decisionMode, wakeAfterMinutes, wakeMessage, splitAfterMinutes, splitMessage)`. Omitted wake values use the 10-minute default; omitted split values use the 15-minute default.
 
 ## Technical design
 
@@ -106,7 +114,9 @@ START
   -> EVALUATE
        -> DONE: STOP
        -> HANDOFF: OPEN NEW CHAT -> SEND HANDOFF PROMPT
-       -> NOT DONE: SEND CONTINUATION
+       -> WAIT_FOR_USER: PAUSE UNTIL USER MESSAGE / MANUAL RESUME
+       -> STAGNATION OR RUNAWAY: SAFETY PAUSE
+       -> CONTINUE: SEND CONTINUATION
 ```
 
 ### Important reliability rules
@@ -116,23 +126,26 @@ START
 - After a Runner send, the newest turn created after that send is the active turn. If the user sends additional messages while ChatGPT is working, the Runner follows the newest post-send turn instead of staying pinned to the original Runner prompt text.
 - A processed turn is never processed twice.
 - The script never scans old assistant messages for completion.
+- Final `ממתין לך` pauses automatic continuation without stopping the Runner. A later user message is adopted directly as the next external turn; the Runner does not first inject a stale `תמשיך לשלב הבא`.
+- **המשך עכשיו** / `__sequenceRunner.resume()` provides an explicit manual escape hatch when the external blocker was resolved out of band.
+- Repeated identical normalized ordinary responses are bounded by a stagnation circuit breaker, and a separate high continuation fuse bounds non-identical runaway loops. These are safety guards, not substitutes for the explicit `ממתין לך` protocol.
 - The Stop button is treated as a strong generation signal, but very fast responses can still complete without requiring that Stop was observed.
 - Assistant text must remain stable for a short period before it is evaluated.
 - If a Runner-sent tracked turn shows ChatGPT's verified `Message delivery timed out. Please try again.` alert, the runner clicks that turn's `Retry` button once and keeps the same cycle. Retry does not count as another Runner send and never clicks Stop. A missing/failed Retry or a second delivery timeout on the same cycle stops with a clear error instead of looping.
-- If ChatGPT shows the exact recovery UI `Connection interrupted. Waiting for the complete answer`, that interruption state takes precedence over a lingering global Stop control. A handoff may be recovered only when the full `NEXT_CHAT_PROMPT` is present and non-empty and the only missing handoff marker is the final outer `[[/SEQUENCE_RUNNER_NEW_CHAT]]`. Any other partial response remains waiting for ChatGPT recovery; a bare `סיימתי` is never promoted to completion while the connection-interrupted UI is present. A deferred first Runner send also yields to a newer external turn only when that turn contains an unambiguous safe handoff.
+- If ChatGPT shows the exact recovery UI `Connection interrupted. Waiting for the complete answer`, that interruption state takes precedence over a lingering global Stop control. A handoff may be recovered only when the full `NEXT_CHAT_PROMPT` is present and non-empty and the only missing handoff marker is the final outer `[[/SEQUENCE_RUNNER_NEW_CHAT]]`. Any other partial response remains waiting for ChatGPT recovery; a bare `סיימתי` or `ממתין לך` is never promoted to a final protocol decision while the interruption UI says the response is partial. A deferred first Runner send also yields to a newer external turn only when that turn contains an unambiguous safe handoff.
 - A watchdog wakes the state machine if a DOM mutation is missed; it does not independently decide to send.
 - Long-running responses do not fail because an arbitrary wall-clock timeout elapsed.
 - After five minutes, the status badge shows elapsed waiting time while the runner continues waiting.
 - For each run, the panel lets the user configure the long-running-response wake delay from 1–20 minutes and choose or edit the wake message. The wake delay/message remain live while the run is active: changing them updates the current response if its one-shot wake has not already started sending, otherwise the new values apply from the next response. Delay changes are measured from the current response's original generation start, so lowering a delay can make it immediately due and raising it postpones the wake without resetting elapsed time. The default is 10 minutes with `לוקח לך הרבה זמן, הכל בסדר? אם העבודה גדולה מדי, אתה יכול לחלק אותה ולהמשיך בהודעה נוספת.`; `מה קורה?` is also available as a preset, and custom text is supported. When the exact same tracked Assistant response remains actively generating past the configured delay, the runner immediately attempts that one wake message through the same immediate composer/send path used by **Send now**, without clicking Stop or resending the original runner prompt. It does not wait for the active response to finish and does not require Send to be available before inserting the wake text; after insertion the immediate-send path waits briefly for Send to become available. The nudge is one-shot per response and defers only when the composer already contains user text, so that text is never overwritten.
-- A second independently configurable long-work split escalation defaults to 10 minutes (range 1–20). Its delay/message remain live until the current work episode has started sending or sent its one-shot split. Runtime edits reuse the original episode start time; after the split was already sent, the new values are retained for the next work episode without duplicating the current one. Its editable default instruction tells the assistant to complete and verify the current segment, split remaining work, summarize the next segment and stop at a safe checkpoint until `תמשיך לשלב הבא`. It uses the same immediate-send safety path, never clicks Stop, never overwrites a user draft and is one-shot for the continuous long-work episode. If wake is configured to fire before split, the split timer keeps the original episode start time rather than restarting after the wake.
-- Startup no longer uses a separate untracked busy-wait path. If **Existing task + opening message already sent** is started while its opening response is already generating, that response is adopted into the normal tracked-cycle machinery, so wake, connection-interruption, completion and handoff behavior remain consistent. The compact first safety contract stays pending through wake or explicit immediate-message supersession and is sent afterward unless the adopted response already completes or hands off the sequence. The adopted pre-run response is not counted as a Runner response. Ordinary existing/new-task startup still defers behind unrelated pre-existing generation without nudging it.
+- A second independently configurable long-work split escalation defaults to 15 minutes (range 1–20). Its delay/message remain live until the current work episode has started sending or sent its one-shot split. Runtime edits reuse the original episode start time; after the split was already sent, the new values are retained for the next work episode without duplicating the current one. Its editable default instruction tells the assistant to complete and verify the current segment, split remaining work, summarize the next segment and stop at a safe checkpoint until `תמשיך לשלב הבא`. It uses the same immediate-send safety path, never clicks Stop, never overwrites a user draft and is one-shot for the continuous long-work episode. If wake is configured to fire before split, the split timer keeps the original episode start time rather than restarting after the wake.
+- Startup no longer uses a separate untracked busy-wait path. If **Existing task + opening message already sent** is started while its opening response is already generating, that response is adopted into the normal tracked-cycle machinery, so wake, connection-interruption, completion, wait-for-user and handoff behavior remain consistent. The compact first safety contract stays pending through wake or explicit immediate-message supersession and is sent afterward unless the adopted response already completes or hands off the sequence. The adopted pre-run response is not counted as a Runner response. Ordinary existing/new-task startup still defers behind unrelated pre-existing generation without nudging it.
 - Wake tracking is cycle-based rather than turn-node-based: temporary loss of the tracked turn DOM does not disable the one-shot long-response wake while generation is still active.
 - The user can always stop manually by clicking the status badge.
 - Existing composer text is never overwritten automatically.
 - Text insertion is verified before Send is clicked.
 - Clicking the floating status badge stops the runner manually.
 
-## Completion detection
+## Completion and wait detection
 
 The runner reads only the assistant body belonging to the current new turn.
 
@@ -152,6 +165,14 @@ A response ending with:
 
 does, but only when that is truly the end of the complete sequence.
 
+A response ending with:
+
+```text
+ממתין לך
+```
+
+means the sequence is unfinished but automatic continuation must pause until the user supplies the missing input or explicitly resumes. Mentioning `ממתין לך` earlier in the response does not pause the Runner if later non-empty content follows it.
+
 When the current chat has finished its assigned work but another chat must continue the sequence, the response instead ends with:
 
 ```text
@@ -163,7 +184,7 @@ When the current chat has finished its assigned work but another chat must conti
 
 The handoff block is then the final content, so the runner performs the handoff rather than stopping.
 
-Light punctuation/Markdown around the final marker is tolerated.
+Light punctuation/Markdown around final `סיימתי` and `ממתין לך` markers is tolerated.
 
 ## Debugging
 
@@ -181,13 +202,19 @@ While the runner is active:
 __sequenceRunner.getState()
 ```
 
-returns the current state.
+returns the current state, including `waitingForUser`, `automaticContinuationStreak` and `stagnationRepeatCount` when relevant.
 
 ```js
 __sequenceRunner.getLog()
 ```
 
 returns the internal event log.
+
+Manual wait recovery:
+
+```js
+__sequenceRunner.resume()
+```
 
 Manual stop:
 
@@ -199,7 +226,7 @@ A backward-compatible alias, `__chatgptAutoContinueV3`, is also currently expose
 
 ### Downloadable diagnostic snapshot
 
-The management panel includes **דווח תקלה / הורד צילום מצב**. It generates a versioned JSON snapshot of the current Runner state and the observable ChatGPT page without attempting recovery or changing the active run. The report includes Runner state/metrics/log, current-cycle metadata, turn inventory, a deep snapshot of the tracked turn, selector/control evidence, composer state, deterministic diagnostic observations and the current page DOM.
+The management panel includes **דווח תקלה / הורד צילום מצב**. It generates a versioned JSON snapshot of the current Runner state and the observable ChatGPT page without attempting recovery or changing the active run. The report includes Runner state/metrics/log, current-cycle metadata, wait/safety-pause reason and continuation-safety counters, turn inventory, a deep snapshot of the tracked turn, selector/control evidence, composer state, deterministic diagnostic observations and the current page DOM.
 
 The same builder is available programmatically:
 
@@ -243,6 +270,7 @@ The panel exposes current, DOM-observable chat metrics:
 - combined visible text character count
 - runner responses completed
 - prompts sent by the runner
+- current wait-for-user/safety-pause status and consecutive automatic-continuation streak
 - runner elapsed time
 - current state
 
@@ -252,7 +280,7 @@ These are operational indicators, not an official ChatGPT context-window or toke
 
 When a run reaches a terminal state — successful completion, manual/limit stop, or error — the panel shows **התחל ריצה חדשה**.
 
-Restarting reuses the same loaded runner and panel but resets all run-specific state: counters, processed-turn tracking, step limits, queued intermediate messages, pending sends and handoff counters. Panel position, size and minimized preference remain intact. The start configuration is shown again so a different task can begin without reinjecting the bookmarklet.
+Restarting reuses the same loaded runner and panel but resets all run-specific state: counters, processed-turn tracking, step limits, queued intermediate messages, pending sends, wait/safety state, continuation-safety counters and handoff counters. Panel position, size and minimized preference remain intact. The start configuration is shown again so a different task can begin without reinjecting the bookmarklet.
 
 Programmatic restart:
 
@@ -280,6 +308,30 @@ __sequenceRunner.clearStepLimit()
 __sequenceRunner.getMetrics()
 ```
 
+### Waiting for user and runaway protection
+
+The Runner deliberately distinguishes “there is more work” from “there is more work, but it cannot run now”.
+
+If the Assistant genuinely needs information, a decision, approval, a file or another action from the user, the shared prompt contract tells it to explain the blocker naturally and finish on a separate final line:
+
+```text
+ממתין לך
+```
+
+At that boundary the Runner enters `WAITING_FOR_USER`, remains mounted and stops automatic continuations. It does not treat the task as complete and does not repeatedly ask the same blocked question.
+
+Recovery is intentionally simple:
+
+- If the user sends a new message, the Runner notices the new external turn, adopts it, follows the resulting Assistant response and continues the normal state machine without first sending `תמשיך לשלב הבא`.
+- If the blocker was resolved outside the chat, the panel exposes **המשך עכשיו**; `__sequenceRunner.resume()` provides the same behavior programmatically and sends one normal continuation after normal send-safety checks.
+
+Two independent defense-in-depth guards protect against protocol mistakes:
+
+- An exact normalized response that repeats across automatic continuations trips a recoverable `STALLED` pause instead of looping forever.
+- A high consecutive automatic-continuation fuse enters `SAFETY_PAUSED` even when the Assistant keeps varying the wording and therefore avoids exact-repeat detection.
+
+The safety counters reset on real user/external progress and explicit recovery boundaries. Automatic wake/split nudges do not masquerade as user progress.
+
 
 ## Automatic chat rollover / handoff
 
@@ -300,6 +352,7 @@ Behavior:
 
 - If only the current chat segment is complete, the assistant writes `סיימתי` immediately before the handoff block.
 - A bare final `סיימתי` is reserved for the true end of the complete sequence.
+- Final `ממתין לך` is reserved for unfinished work that requires user/external input; it is not a substitute for a handoff.
 - If the assistant says another chat is ready, assigned or still contains work, it must include the handoff block instead of ending with bare `סיימתי`.
 - The assistant may also decide on its own to hand off when a fresh chat would materially improve focus, precision or continuation quality — for example after a long/loaded chat, when the current topic is exhausted, when a substantially different stage begins, or when most old context is no longer needed.
 - Finishing an ordinary step is not by itself a reason to open a new chat.
@@ -310,16 +363,17 @@ Behavior:
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition.
 - Before the handoff prompt is inserted, the runner checks the verified Chat/Work `Composer mode` toggle when it exists. If Work (or any non-Chat state) is active, it clicks `Chat` and waits until that button reports `aria-pressed="true"`; if the toggle exists but Chat cannot be selected, the handoff fails instead of sending in the wrong mode. UI variants without that toggle continue normally.
-- The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.
+- The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/wait/handoff contract, so the new chat immediately knows the task and can later emit completion, wait or another handoff correctly.
 - That first handoff message also includes a chat-title instruction: when the task contains a clear chat number, use `צ'אט N` with that number; otherwise use a short descriptive title based on the work the fresh chat is planned to perform. This instruction is added only to chats opened automatically by handoff.
 - Runner counters, step limits and queued messages remain in the same in-page runner session across the SPA navigation.
 - A malformed handoff marker block stops with an error instead of silently continuing.
-- Priority at a response boundary remains: explicit step limit, malformed-handoff safety check, due intermediate message, valid handoff, normal completion, ordinary continuation.
+- Priority at a response boundary remains: explicit step limit, malformed-handoff safety check, due intermediate message, valid handoff, normal completion, wait-for-user, stagnation/runaway safety, ordinary continuation.
 
 Debugging:
 
 ```js
 __sequenceRunner.parseHandoff(text)
+__sequenceRunner.isWaitingForUser(text)
 __sequenceRunner.getState()
 __sequenceRunner.getMetrics()
 ```
@@ -329,13 +383,13 @@ __sequenceRunner.getMetrics()
 
 The runner no longer has to assume that the task was already described earlier in the conversation.
 
-The control panel offers three start modes:
+The control panel offers three start modes, and **all three install the same wait-for-user semantics**:
 
-- **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion and new-chat handoff contract and asks the assistant to continue.
-- **Existing task + opening message already sent** — assumes the full opening contract is already present, but still sends a very short first safety contract. It starts with `תמשיך לשלב הבא`, preserves the selected work/decision mode, reinforces `סיימתי` and handoff semantics, and then returns to the plain continuation prompt on later cycles.
-- **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion and handoff contract, then asks the assistant to begin the first step.
+- **Existing task/context** — preserves the original behavior. The first runner prompt installs the step-by-step continuation, completion, wait-for-user and new-chat handoff contract and asks the assistant to continue.
+- **Existing task + opening message already sent** — assumes the full opening contract is already present, but still sends a very short first safety contract. It starts with `תמשיך לשלב הבא`, preserves the selected work/decision mode, reinforces `ממתין לך`, `סיימתי` and handoff semantics, and then returns to the plain continuation prompt on later cycles.
+- **New task** — the user enters free-form task text in the panel. The runner embeds that task in the first prompt together with the continuation, completion, wait-for-user and handoff contract, then asks the assistant to begin the first step.
 
-The opening-message-already-sent choice is a start mode, not a separate checkbox. Its first runner message is intentionally compact rather than only `תמשיך לשלב הבא`: this prevents a completed task from omitting `סיימתי` and preserves handoff plus the selected work/decision semantics. Later cycles still use only `תמשיך לשלב הבא`. Programmatic callers may request the same compact startup through the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.
+The opening-message-already-sent choice is a start mode, not a separate checkbox. Its first runner message is intentionally compact rather than only `תמשיך לשלב הבא`: this prevents a completed task from omitting `סיימתי`, prevents a real blocker from being converted into a continuation loop, and preserves handoff plus the selected work/decision semantics. Later cycles still use only `תמשיך לשלב הבא`. Programmatic callers may request the same compact startup through the third argument to `startExistingContext(workStyle, decisionMode, skipFirstMessage)`.
 
 The runner waits for an explicit Start action from the panel. It does not automatically send the first prompt merely because the script was loaded.
 
@@ -359,7 +413,7 @@ The panel supports:
 
 The safe-boundary modes never interrupt the current assistant response. The explicit immediate-send mode deliberately allows the user to supersede the runner's currently tracked cycle while ChatGPT is still responding. The runner does not click Stop; it tracks the newly sent message as the active cycle instead.
 
-If a queued message becomes due at the same boundary where the assistant emits the normal completion marker, the queued manual message takes precedence. This allows the user to update the task or completion goal before the runner stops.
+If a queued message becomes due at the same boundary where the assistant emits the normal completion, handoff or wait-for-user marker, the queued manual message keeps its intended precedence. This allows the user to update the task or completion goal before the runner commits to that automatic boundary decision.
 
 The explicit step-limit safety guard still has higher priority: if the configured step limit has been reached, the runner stops instead of sending another message.
 
@@ -408,7 +462,7 @@ the runner no longer treats that situation as a fatal error. Instead it stores t
 
 Before retrying a pending continuation, the runner compares the current turns with the snapshot captured when that continuation became due. If a newer user-created turn appeared in the meantime, that turn supersedes the stale continuation: the pending continuation is discarded and the newer assistant response is tracked and evaluated first. The same snapshot is preserved across repeated deferrals, so a manual turn cannot be lost simply because the composer or ChatGPT remains busy for another retry cycle. This also covers a manual send that lands during the short continuation delay before the automatic send begins.
 
-If no newer turn exists, the runner automatically retries when the composer is empty and ChatGPT is idle. The panel also exposes **Continue automation** as a manual recovery action.
+If no newer turn exists, the runner automatically retries when the composer is empty and ChatGPT is idle. The panel also exposes **Continue automation** as a manual recovery action. When the Runner is specifically in a wait/safety pause, that same control is labeled **המשך עכשיו** and resumes only on explicit user action.
 
 This means a user can type or send a message manually while the runner is active without permanently killing the sequence or allowing an obsolete continuation to run afterward.
 
@@ -428,7 +482,7 @@ For the current tested ChatGPT DOM:
 
 - `button[aria-label="Stop"]` means generation is still active.
 - `button[aria-label="Regenerate response"]` inside the current turn, with no active Stop button, is treated as authoritative evidence that generation has completed.
-- After final UI appears, the runner still waits until the assistant text has remained unchanged for `STABLE_MS` before evaluation. This prevents a race where the final controls render before the last response text — including completion or handoff markers — has finished settling in the DOM.
+- After final UI appears, the runner still waits until the assistant text has remained unchanged for `STABLE_MS` before evaluation. This prevents a race where the final controls render before the last response text — including completion, wait or handoff markers — has finished settling in the DOM.
 - Stable-text timing remains a fallback for fast or alternate UI cases where the final action is not observed.
 
 Assistant text lookup is resilient to wrapper changes. The runner first uses:
