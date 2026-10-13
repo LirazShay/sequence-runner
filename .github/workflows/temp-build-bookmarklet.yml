@@ -1,0 +1,39 @@
+name: Temporary bookmarklet build
+
+on:
+  push:
+    branches:
+      - fix/wait-for-user-runaway-guard
+    paths:
+      - .github/workflows/temp-build-bookmarklet.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:bookmarklet
+      - name: Verify generated bookmarklet structure
+        run: |
+          test "$(wc -l < runner.min.js)" -eq 1
+          test "$(head -c 11 runner.min.js)" = "javascript:"
+          grep -q '3.43' runner.min.js
+          node --check <(sed 's/^javascript://' runner.min.js | sed 's/%25/%/g')
+          sha256sum runner.min.js
+          wc -c runner.min.js
+      - name: Upload generated bookmarklet
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-min-v3.43
+          path: runner.min.js
+          if-no-files-found: error
+          retention-days: 1
