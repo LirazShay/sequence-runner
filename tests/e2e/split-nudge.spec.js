@@ -49,7 +49,7 @@ test("start panel exposes configurable split defaults and presets", async ({ har
     };
   });
 
-  expect(config.delay).toBe("10");
+  expect(config.delay).toBe("15");
   expect(config.delayOptions).toEqual(
     Array.from({ length: 20 }, (_, index) => String(index + 1))
   );
