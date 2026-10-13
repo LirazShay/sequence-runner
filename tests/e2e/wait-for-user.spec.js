@@ -1,7 +1,5 @@
 import { test, expect } from "./fixture.js";
 
-const WAIT_MARKER = "ממתין לך";
-
 async function sendUserMessage(harness, text) {
   await harness.page.evaluate((message) => {
     window.__mockChatGPT.setComposerText(message);
@@ -20,21 +18,15 @@ test("all three opening modes install the natural wait-for-user contract", async
     async () => harness.page.evaluate(() => window.__sequenceRunner.startWithTask("WAIT_PROTOCOL_TASK"))
   ];
 
-  for (let index = 0; index < starts.length; index++) {
+  for (const start of starts) {
     await harness.load();
     await harness.setScenario({ responses: [{ type: "normal", text: "סיימתי" }] });
-    await starts[index]();
+    await start();
     await harness.waitForState("DONE");
 
     const [firstPrompt] = await harness.sentMessages();
     expect(firstPrompt).toContain("ממתין לך");
     expect(firstPrompt).toContain("מידע, החלטה, אישור, קובץ או פעולה");
-
-    if (index < starts.length - 1) {
-      await harness.page.evaluate(() => window.__sequenceRunner.restart());
-      await harness.waitForState("READY_TO_START");
-      await harness.page.evaluate(() => window.__mockChatGPT.reset());
-    }
   }
 });
 
