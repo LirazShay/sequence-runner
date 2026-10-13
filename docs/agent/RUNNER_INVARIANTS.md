@@ -142,7 +142,7 @@ The wake nudge is one-shot per tracked Assistant response:
 
 The long-work split escalation is one-shot per continuous long-work episode:
 
-- independent delay range 1–20 minutes; default 10
+- independent delay range 1–20 minutes; default 15
 - delay/message are live runtime settings until that episode’s split starts sending
 - eligibility is recalculated from the preserved original episode start
 - editing after split is sent applies to the next episode and must not duplicate the current split

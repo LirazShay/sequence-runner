@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.41";
+    const VERSION = "3.42";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -33,7 +33,7 @@
         LONG_WAIT_WAKE_SHORT_MESSAGE: "מה קורה?",
         LONG_WAIT_SPLIT_MIN_MINUTES: 1,
         LONG_WAIT_SPLIT_MAX_MINUTES: 20,
-        LONG_WAIT_SPLIT_DEFAULT_MINUTES: 10,
+        LONG_WAIT_SPLIT_DEFAULT_MINUTES: 15,
         LONG_WAIT_SPLIT_DEFAULT_MESSAGE: "העבודה הזו מתארכת יותר מדי לתשובה אחת. עצור בנקודת checkpoint בטוחה: סיים ואמת רק את המקטע הנוכחי. אם מה שנשאר גדול, חלק אותו למקטעים לפי התכנון, סכם בקצרה מה הושלם ומה המקטע הבא, ואז עצור וחכה ל'תמשיך לשלב הבא'. אל תתחיל את המקטע הבא באותה תשובה.",
         LONG_WAIT_SPLIT_SHORT_MESSAGE: "פצל את העבודה עכשיו: סיים checkpoint בטוח, סכם מה הושלם ומה הבא, עצור, והמשך רק אחרי 'תמשיך לשלב הבא'.",
         UI_REFRESH_MS: 1000,
@@ -278,7 +278,7 @@
         '<option value="custom">מותאם אישית</option>',
         '</select>',
         '<textarea data-input="split-message" rows="4" style="width:100%;box-sizing:border-box;resize:vertical;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:7px;margin-bottom:6px">' + escapeHtml(CONFIG.LONG_WAIT_SPLIT_DEFAULT_MESSAGE) + '</textarea>',
-        '<div style="font-size:10px;color:#94a3b8">ברירת המחדל היא 10 דקות. אם הודעת הבדיקה נשלחה קודם, שעון הפיצול ממשיך מהתגובה הארוכה המקורית ולא מתחיל מחדש. הוראת הפיצול נשלחת פעם אחת, בלי ללחוץ Stop ובלי לדרוס טקסט קיים. שינוי זמן או הודעה בזמן ריצה חל מיד כל עוד הוראת הפיצול עדיין לא נשלחה; לאחר שנשלחה, ההגדרה החדשה תחול על פרק העבודה הבא.</div>',
+        '<div style="font-size:10px;color:#94a3b8">ברירת המחדל היא 15 דקות. אם הודעת הבדיקה נשלחה קודם, שעון הפיצול ממשיך מהתגובה הארוכה המקורית ולא מתחיל מחדש. הוראת הפיצול נשלחת פעם אחת, בלי ללחוץ Stop ובלי לדרוס טקסט קיים. שינוי זמן או הודעה בזמן ריצה חל מיד כל עוד הוראת הפיצול עדיין לא נשלחה; לאחר שנשלחה, ההגדרה החדשה תחול על פרק העבודה הבא.</div>',
         '</div>',
         '</div>',
         '<div data-role="diagnostic" style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
