@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.40";
+    const VERSION = "3.41";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -17,6 +17,7 @@
         NAVIGATION_TIMEOUT_MS: 15000,
         HANDOFF_MIN_READY_MS: 1000,
         COMPOSER_MODE_TIMEOUT_MS: 5000,
+        SEND_BUTTON_READY_TIMEOUT_MS: 3000,
         STABLE_MS: 900,
         FAST_RESPONSE_FALLBACK_MS: 2500,
         DELIVERY_RETRY_START_TIMEOUT_MS: 5000,
@@ -33,8 +34,8 @@
         LONG_WAIT_SPLIT_MIN_MINUTES: 1,
         LONG_WAIT_SPLIT_MAX_MINUTES: 20,
         LONG_WAIT_SPLIT_DEFAULT_MINUTES: 10,
-        LONG_WAIT_SPLIT_DEFAULT_MESSAGE: "העבודה הזו מתארכת יותר מדי לתשובה אחת. עצור בנקודת checkpoint בטוחה: סיים ואמת רק את המקטע הנוכחי. אם מה שנשאר גדול, חלק אותו למקטעים לפי התכנון, סכם בקצרה מה הושלם ומה המקטע הבא, ואז עצור וחכה ל\'תמשיך לשלב הבא\'. אל תתחיל את המקטע הבא באותה תשובה.",
-        LONG_WAIT_SPLIT_SHORT_MESSAGE: "פצל את העבודה עכשיו: סיים checkpoint בטוח, סכם מה הושלם ומה הבא, עצור, והמשך רק אחרי \'תמשיך לשלב הבא\'.",
+        LONG_WAIT_SPLIT_DEFAULT_MESSAGE: "העבודה הזו מתארכת יותר מדי לתשובה אחת. עצור בנקודת checkpoint בטוחה: סיים ואמת רק את המקטע הנוכחי. אם מה שנשאר גדול, חלק אותו למקטעים לפי התכנון, סכם בקצרה מה הושלם ומה המקטע הבא, ואז עצור וחכה ל'תמשיך לשלב הבא'. אל תתחיל את המקטע הבא באותה תשובה.",
+        LONG_WAIT_SPLIT_SHORT_MESSAGE: "פצל את העבודה עכשיו: סיים checkpoint בטוח, סכם מה הושלם ומה הבא, עצור, והמשך רק אחרי 'תמשיך לשלב הבא'.",
         UI_REFRESH_MS: 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
@@ -4369,19 +4370,53 @@
         } catch (_) {}
     }
 
-    async function setComposerText(text) {
+    function getComposerElementText(composer) {
+        if (!composer) {
+            return "";
+        }
+
+        return normalizeText(
+            composer.innerText ||
+            composer.textContent ||
+            composer.value ||
+            ""
+        );
+    }
+
+    function createComposerConflictError(message, code) {
+        const error = new Error(message);
+        error.code = code;
+        return error;
+    }
+
+    function recordComposerConflict(
+        source,
+        phase,
+        expectedText,
+        actualText
+    ) {
+        record("composer-write-conflict", {
+            source,
+            phase,
+            expectedLength:
+                normalizeText(expectedText).length,
+            actualLength:
+                normalizeText(actualText).length
+        });
+    }
+
+    async function setComposerText(text, options) {
+        const opts = options || {};
+        const source = opts.source || "runner";
+        const expected = normalizeText(text);
         const composer = getComposer();
 
         if (!composer) {
             throw new Error("Composer not found.");
         }
 
-        const existing = normalizeText(
-            composer.innerText ||
-                composer.textContent ||
-                composer.value ||
-                ""
-        );
+        const existing =
+            getComposerElementText(composer);
 
         if (existing) {
             const error = new Error(
@@ -4392,8 +4427,6 @@
         }
 
         composer.focus();
-
-        let pasteWorked = false;
 
         try {
             const dt = new DataTransfer();
@@ -4408,22 +4441,33 @@
             );
 
             await sleep(120);
-
-            pasteWorked =
-                normalizeText(
-                    composer.innerText ||
-                        composer.textContent ||
-                        composer.value ||
-                        ""
-                ) === normalizeText(text);
         } catch (_) {}
 
-        if (pasteWorked) {
+        const afterPaste =
+            getComposerElementText(composer);
+
+        if (afterPaste === expected) {
+            record("composer-write-owned", {
+                source,
+                method: "paste",
+                length: expected.length
+            });
             return composer;
         }
 
-        clearComposer(composer);
-        await sleep(50);
+        if (afterPaste) {
+            recordComposerConflict(
+                source,
+                "after-paste",
+                expected,
+                afterPaste
+            );
+            throw createComposerConflictError(
+                "Composer changed while Sequence Runner was inserting text; preserving the current draft.",
+                "COMPOSER_CHANGED_DURING_INSERT"
+            );
+        }
+
         composer.focus();
 
         let inserted = false;
@@ -4434,20 +4478,236 @@
 
         await sleep(120);
 
-        const actual = normalizeText(
-            composer.innerText ||
-                composer.textContent ||
-                composer.value ||
-                ""
-        );
+        const actual =
+            getComposerElementText(composer);
 
-        if (!inserted || actual !== normalizeText(text)) {
-            throw new Error(
-                "Could not reliably insert prompt into the composer."
+        if (actual === expected && inserted) {
+            record("composer-write-owned", {
+                source,
+                method: "insertText",
+                length: expected.length
+            });
+            return composer;
+        }
+
+        if (actual && actual !== expected) {
+            recordComposerConflict(
+                source,
+                "after-insertText",
+                expected,
+                actual
+            );
+            throw createComposerConflictError(
+                "Composer changed while Sequence Runner was inserting text; preserving the current draft.",
+                "COMPOSER_CHANGED_DURING_INSERT"
             );
         }
 
-        return composer;
+        throw new Error(
+            "Could not reliably insert prompt into the composer."
+        );
+    }
+
+    async function rollbackComposerWrite(
+        composer,
+        text,
+        source,
+        reason
+    ) {
+        const expected = normalizeText(text);
+
+        if (!composer || !composer.isConnected) {
+            record("composer-write-rollback-skipped", {
+                source,
+                reason,
+                skipReason: "composer-detached"
+            });
+            return false;
+        }
+
+        const actual =
+            getComposerElementText(composer);
+
+        if (actual !== expected) {
+            if (actual) {
+                recordComposerConflict(
+                    source,
+                    "rollback",
+                    expected,
+                    actual
+                );
+            }
+
+            record("composer-write-rollback-skipped", {
+                source,
+                reason,
+                skipReason:
+                    actual
+                        ? "composer-changed"
+                        : "composer-already-empty"
+            });
+            return false;
+        }
+
+        clearComposer(composer);
+        await sleep(50);
+
+        let remaining =
+            getComposerElementText(composer);
+
+        if (remaining === expected) {
+            clearComposer(composer);
+            await sleep(50);
+            remaining =
+                getComposerElementText(composer);
+        }
+
+        if (!remaining) {
+            record("composer-write-rolled-back", {
+                source,
+                reason
+            });
+            return true;
+        }
+
+        record("composer-write-rollback-failed", {
+            source,
+            reason,
+            remainingLength:
+                remaining.length
+        });
+        return false;
+    }
+
+    function verifyComposerWriteStillOwned(
+        composer,
+        text,
+        source,
+        phase
+    ) {
+        const expected = normalizeText(text);
+        const activeComposer = getComposer();
+        const actual =
+            getComposerElementText(composer);
+
+        if (
+            activeComposer === composer &&
+            actual === expected
+        ) {
+            return true;
+        }
+
+        recordComposerConflict(
+            source,
+            phase,
+            expected,
+            activeComposer === composer
+                ? actual
+                : getComposerElementText(activeComposer)
+        );
+
+        throw createComposerConflictError(
+            "Composer changed before Sequence Runner could send; preserving the current draft.",
+            "COMPOSER_CHANGED_BEFORE_SEND"
+        );
+    }
+
+    async function prepareComposerSend(
+        text,
+        options
+    ) {
+        const opts = options || {};
+        const source = opts.source || "runner";
+        const targetCycle =
+            opts.requireActiveGenerationCycle || null;
+        const composer = await setComposerText(
+            text,
+            { source }
+        );
+
+        const readiness = await waitUntil(
+            function () {
+                if (
+                    targetCycle &&
+                    (
+                        currentCycle !== targetCycle ||
+                        !getStopButton()
+                    )
+                ) {
+                    return {
+                        cancelled: true,
+                        reason:
+                            "target-generation-ended"
+                    };
+                }
+
+                const button = getSendButton();
+
+                return button && !button.disabled
+                    ? {
+                          button,
+                          cancelled: false
+                      }
+                    : null;
+            },
+            CONFIG.SEND_BUTTON_READY_TIMEOUT_MS,
+            50
+        );
+
+        if (readiness?.cancelled) {
+            await rollbackComposerWrite(
+                composer,
+                text,
+                source,
+                readiness.reason
+            );
+
+            const error = new Error(
+                "The tracked ChatGPT response ended before the automatic message could be sent."
+            );
+            error.code =
+                "AUTOMATIC_IMMEDIATE_TARGET_ENDED";
+            throw error;
+        }
+
+        if (!readiness?.button) {
+            await rollbackComposerWrite(
+                composer,
+                text,
+                source,
+                "send-button-unavailable"
+            );
+
+            throw new Error(
+                opts.unavailableMessage ||
+                    "Send button did not become available."
+            );
+        }
+
+        try {
+            verifyComposerWriteStillOwned(
+                composer,
+                text,
+                source,
+                "before-send"
+            );
+        } catch (err) {
+            if (
+                getComposer() !== composer &&
+                getComposerElementText(composer) ===
+                    normalizeText(text)
+            ) {
+                await rollbackComposerWrite(
+                    composer,
+                    text,
+                    source,
+                    "composer-replaced-before-send"
+                );
+            }
+            throw err;
+        }
+
+        return readiness.button;
     }
 
     function cleanup() {
@@ -4752,17 +5012,8 @@
     }
 
     function getComposerText() {
-        const composer = getComposer();
-
-        if (!composer) {
-            return "";
-        }
-
-        return normalizeText(
-            composer.innerText ||
-            composer.textContent ||
-            composer.value ||
-            ""
+        return getComposerElementText(
+            getComposer()
         );
     }
 
@@ -5105,7 +5356,7 @@
         const message = normalizeText(text);
         const opts = options || {};
         const cycleLabel = opts.label || "injection";
-        const source = opts.source || "user";
+        const source = opts.source || "user-immediate";
         const countAsInjection =
             opts.countAsInjection !== false;
         const sentStatusMessage =
@@ -5138,9 +5389,7 @@
             );
         }
 
-        const composer = getComposer();
-
-        if (!composer) {
+        if (!getComposer()) {
             throw new Error("Composer not found.");
         }
 
@@ -5158,27 +5407,17 @@
                 getTurns().map(getTurnKey)
             );
 
-            await setComposerText(message);
-
-            const sendButton = await waitUntil(
-                function () {
-                    const button =
-                        getSendButton();
-
-                    return button &&
-                        !button.disabled
-                        ? button
-                        : null;
-                },
-                3000,
-                50
-            );
-
-            if (!sendButton) {
-                throw new Error(
-                    "Send button did not become available while ChatGPT was responding."
+            const sendButton =
+                await prepareComposerSend(
+                    message,
+                    {
+                        source,
+                        requireActiveGenerationCycle:
+                            opts.targetCycle || null,
+                        unavailableMessage:
+                            "Send button did not become available while ChatGPT was responding."
+                    }
                 );
-            }
 
             const supersededCycle =
                 currentCycle;
@@ -5291,6 +5530,7 @@
         } finally {
             immediateSendLocked = false;
             renderPanel();
+            scheduleEvaluate();
         }
     }
 
@@ -5390,13 +5630,27 @@
             getTurns().map(getTurnKey)
         );
 
+        let sendButton;
+
         try {
-            await setComposerText(prompt);
+            sendButton = await prepareComposerSend(
+                prompt,
+                {
+                    source:
+                        "runner-" + label,
+                    unavailableMessage:
+                        "Send button did not become available."
+                }
+            );
         } catch (err) {
+            const composerConflict =
+                err?.code === "COMPOSER_NOT_EMPTY" ||
+                err?.code === "COMPOSER_CHANGED_DURING_INSERT" ||
+                err?.code === "COMPOSER_CHANGED_BEFORE_SEND";
+
             if (
                 deferWhenBlocked &&
-                err?.code ===
-                    "COMPOSER_NOT_EMPTY"
+                composerConflict
             ) {
                 deferAutoSend(
                     prompt,
@@ -5409,26 +5663,6 @@
 
             sendLocked = false;
             throw err;
-        }
-
-        const sendButton = await waitUntil(
-            function () {
-                const button = getSendButton();
-
-                return button && !button.disabled
-                    ? button
-                    : null;
-            },
-            3000,
-            50
-        );
-
-        if (!sendButton) {
-            sendLocked = false;
-
-            throw new Error(
-                "Send button did not become available."
-            );
         }
 
         resetLongWorkSplitTracking(
@@ -5776,6 +6010,7 @@
                     label: "split",
                     source: "long-wait-split",
                     countAsInjection: false,
+                    targetCycle: cycle,
                     sentStatusMessage:
                         "✂️ נשלחה הוראת פיצול אחרי " +
                         formatWakeDelay(
@@ -5907,6 +6142,7 @@
                 label: "wake",
                 source: "long-wait-wake",
                 countAsInjection: false,
+                targetCycle: cycle,
                 sentStatusMessage:
                     "⏰ נשלחה הודעת בדיקה אחרי " +
                     formatWakeDelay(
