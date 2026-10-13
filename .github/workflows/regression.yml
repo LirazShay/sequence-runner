@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -34,36 +32,8 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
-      - name: Build bookmarklet for verification
-        run: npm run build:bookmarklet
-
-      - name: Commit generated bookmarklet when needed
-        if: github.event_name == 'pull_request'
-        run: |
-          if git diff --quiet -- runner.min.js; then
-            echo "runner.min.js already current."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add runner.min.js
-          git commit -m "Rebuild bookmarklet"
-          git push origin HEAD:${GITHUB_HEAD_REF}
-
-      - name: Run focused composer transaction tests
-        run: npx playwright test tests/e2e/composer-transaction.spec.js
-
       - name: Run regression suite
         run: npm test
-
-      - name: Upload generated bookmarklet
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-runner-bookmarklet
-          path: runner.min.js
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Upload failure evidence
         if: failure()
