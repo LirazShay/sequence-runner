@@ -129,8 +129,13 @@ test("failed automatic wake cannot strand its own text or block the next continu
     { timeout: 5000 }
   ).toBeTruthy();
 
-  const afterFailure = await harness.page.evaluate(() => window.__mockChatGPT.getState());
-  expect(afterFailure.composerText).toBe("");
+  const logAfterFailure = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(logAfterFailure.some(
+    (entry) =>
+      entry.event === "composer-write-rolled-back" &&
+      entry.source === "long-wait-wake" &&
+      entry.reason === "send-button-unavailable"
+  )).toBeTruthy();
 
   await enableSendButton(harness);
   await harness.waitForState("DONE", 5000);
@@ -139,6 +144,9 @@ test("failed automatic wake cannot strand its own text or block the next continu
   expect(sent).toHaveLength(2);
   expect(sent[1]).toBe("תמשיך לשלב הבא");
   expect(sent).not.toContain(DEFAULT_WAKE_MESSAGE);
+
+  const finalMockState = await harness.page.evaluate(() => window.__mockChatGPT.getState());
+  expect(finalMockState.composerText).toBe("");
 
   const events = await harness.events();
   expect(events.some((event) => event.type === "stop-click")).toBeFalsy();
