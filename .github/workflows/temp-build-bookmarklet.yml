@@ -24,12 +24,16 @@ jobs:
       - run: npm run build:bookmarklet
       - name: Verify generated bookmarklet structure
         run: |
-          test "$(wc -l < runner.min.js)" -eq 1
-          test "$(head -c 11 runner.min.js)" = "javascript:"
-          grep -q '3.43' runner.min.js
-          node --check <(sed 's/^javascript://' runner.min.js | sed 's/%25/%/g')
-          sha256sum runner.min.js
-          wc -c runner.min.js
+          node <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('runner.min.js', 'utf8');
+          if (!text.startsWith('javascript:')) throw new Error('Missing javascript: prefix');
+          if (/\r|\n/.test(text)) throw new Error('Bookmarklet must be one physical line');
+          if (!text.includes('3.43')) throw new Error('Expected runner version 3.43');
+          const code = text.slice('javascript:'.length).replaceAll('%25', '%');
+          new Function(code);
+          console.log(`runner.min.js bytes=${Buffer.byteLength(text)} sha256=${require('crypto').createHash('sha256').update(text).digest('hex')}`);
+          NODE
       - name: Upload generated bookmarklet
         uses: actions/upload-artifact@v4
         with:
