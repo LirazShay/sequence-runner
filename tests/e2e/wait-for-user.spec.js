@@ -95,6 +95,44 @@ test("exact repeated ordinary responses trip the stagnation circuit breaker", as
 
   const state = await harness.runnerState();
   expect(state.waitingForUser?.reason).toBe("stagnation");
+  expect(state.stagnationRepeatCount).toBeGreaterThanOrEqual(2);
+
+  const snapshot = await harness.page.evaluate(() => window.__sequenceRunner.createDiagnosticSnapshot());
+  expect(snapshot.runner.waitingForUser?.reason).toBe("stagnation");
+  expect(snapshot.runner.stagnationRepeatCount).toBeGreaterThanOrEqual(2);
+  expect(snapshot.observations.some((item) => item.code === "AUTOMATION_PAUSED_FOR_USER")).toBeTruthy();
+});
+
+test("manual recovery from stagnation resets safety state before continuing", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "אותה תשובה ללא התקדמות" },
+      { type: "normal", text: "אותה תשובה ללא התקדמות" },
+      { type: "normal", text: "אותה תשובה ללא התקדמות" },
+      { type: "normal", text: "אותה תשובה ללא התקדמות" },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("STALLED", 5000);
+
+  const beforeResume = await harness.runnerState();
+  expect(beforeResume.stagnationRepeatCount).toBeGreaterThanOrEqual(2);
+
+  const resumed = await harness.page.evaluate(() => window.__sequenceRunner.resume());
+  expect(resumed).toBeTruthy();
+  await harness.waitForState("DONE", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(5);
+  expect(sent.slice(1)).toEqual(Array(4).fill("תמשיך לשלב הבא"));
+
+  const finalState = await harness.runnerState();
+  expect(finalState.waitingForUser).toBeNull();
+  expect(finalState.automaticContinuationStreak).toBeLessThan(4);
+  expect(finalState.stagnationRepeatCount).toBe(0);
 });
 
 test("hard continuation fuse pauses a varied runaway sequence", async ({ harness }) => {
@@ -116,6 +154,7 @@ test("hard continuation fuse pauses a varied runaway sequence", async ({ harness
 
   const state = await harness.runnerState();
   expect(state.waitingForUser?.reason).toBe("runaway-fuse");
+  expect(state.automaticContinuationStreak).toBe(4);
 });
 
 test("wait marker is recognized only as the final non-empty line", async ({ harness }) => {
