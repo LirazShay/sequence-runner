@@ -71,6 +71,116 @@ test("immediate intermediate message sends while Stop is visible without clickin
   await harness.page.evaluate(() => window.__sequenceRunner.stop("test-cleanup"));
 });
 
+test("immediate message remains trackable when ChatGPT reuses the active turn key", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "hold" },
+      {
+        type: "normal",
+        text: "סיימתי",
+        wrapper: "search-unit",
+        replaceActiveGeneration: true
+      }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+
+  await expect.poll(
+    () => harness.page.locator('button[aria-label="Stop"]').count()
+  ).toBe(1);
+
+  await harness.page.evaluate(() => {
+    const sendButton = document.querySelector(
+      'form[data-chatgpt-composer] button[aria-label="Send"]'
+    );
+
+    if (!sendButton) {
+      throw new Error("Mock Send button not found.");
+    }
+
+    const reuseActiveTurnKey = () => {
+      const turns = [...document.querySelectorAll("[data-turn-key]")];
+      if (turns.length < 2) {
+        throw new Error("Expected the immediate send to create a second mock turn.");
+      }
+
+      const previousTurn = turns.at(-2);
+      const latestTurn = turns.at(-1);
+      const reusedTurnKey = previousTurn.getAttribute("data-turn-key");
+
+      latestTurn.setAttribute("data-turn-key", reusedTurnKey);
+
+      const userMessage = latestTurn.querySelector('[data-user-message-bubble="true"]');
+      if (userMessage) {
+        const userUnit = document.createElement("div");
+        userUnit.setAttribute(
+          "data-content-search-unit-key",
+          `${reusedTurnKey}:3:user`
+        );
+        userMessage.before(userUnit);
+        userUnit.appendChild(userMessage);
+      }
+
+      const observer = new MutationObserver(() => {
+        const assistantUnit = latestTurn.querySelector(
+          '[data-content-search-unit-key$=":assistant"]'
+        );
+        if (!assistantUnit) {
+          return;
+        }
+
+        assistantUnit.setAttribute(
+          "data-content-search-unit-key",
+          `${reusedTurnKey}:4:assistant`
+        );
+
+        const selection = assistantUnit.querySelector(
+          "[data-chatgpt-selection-message-id]"
+        );
+        selection?.setAttribute(
+          "data-chatgpt-selection-message-id",
+          `${reusedTurnKey}:4:assistant-message`
+        );
+        observer.disconnect();
+      });
+
+      observer.observe(latestTurn, {
+        subtree: true,
+        childList: true
+      });
+
+      sendButton.removeEventListener("click", reuseActiveTurnKey);
+    };
+
+    sendButton.addEventListener("click", reuseActiveTurnKey);
+  });
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.sendMessageImmediately("URGENT_SAME_TURN")
+  );
+  await harness.waitForSentCount(2);
+  await harness.waitForState("DONE");
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toBe("URGENT_SAME_TURN");
+
+  const events = await harness.events();
+  expect(events.some((event) => event.type === "stop-click")).toBeFalsy();
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(
+    log.some(
+      (entry) =>
+        entry.event === "response-complete" &&
+        entry.id === 2 &&
+        entry.done === true
+    )
+  ).toBeTruthy();
+});
+
 test("queued-message CRUD and same-boundary ordering remain deterministic", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({ responses: [{ type: "hold" }] });

@@ -9,8 +9,8 @@ Read this file for any change to `runner.js`, runner state, sending behavior, pr
 Current loop:
 
 1. send an initial prompt once,
-2. wait for a new Assistant turn,
-3. wait until that response is complete,
+2. bind the post-send User conversation unit and its following Assistant response, even when ChatGPT reuses an existing turn key,
+3. wait until that tracked Assistant response is complete,
 4. inspect only that newly completed Assistant response,
 5. stop on true completion,
 6. otherwise send exactly one continuation,
@@ -35,12 +35,12 @@ Work style and decision mode are independent per-run prompt contracts:
 
 ## State-machine invariant
 
-Intended flow:
+Conceptual flow:
 
 ```text
 START
   -> SEND
-  -> WAIT_FOR_NEW_TURN
+  -> WAIT_FOR_POST_SEND_RESPONSE
   -> WAIT_FOR_ASSISTANT
   -> WAIT_FOR_RESPONSE_COMPLETE
   -> EVALUATE
@@ -49,19 +49,24 @@ START
        -> NOT DONE: SEND NEXT
 ```
 
+Internal state names may retain historical `TURN` terminology, but correctness is response-based rather than dependent on every send creating a new `data-turn-key`.
+
 Core invariant:
 
-> Normal automatic runner sends preserve one sent prompt per newly completed Assistant turn.
+> Normal automatic runner sends preserve one sent prompt per newly completed Assistant response.
 
 Do not replace this with timer logic such as “if ChatGPT looks idle, send again”.
 
-## Send safety
+## Send safety and response identity
 
 - Never allow duplicate sends for the same cycle.
-- Before sending, capture the currently known turn keys.
-- After sending, the newest turn created after that send is authoritative. If the user sends another message while ChatGPT is working, follow the newest post-send turn rather than remaining pinned to the Runner prompt text.
-- A processed turn must never trigger another continuation.
-- Never scan old Assistant messages for completion; evaluate only the Assistant body in the current tracked turn.
+- Before sending, snapshot both the currently known turn keys and conversation/search-unit keys needed to distinguish content appended after the send.
+- Prefer binding the post-send User unit that corresponds to the exact sent prompt, then bind the following Assistant unit as the response owned by that cycle.
+- A newly created post-send turn remains valid evidence, but a new turn key is **not required**: ChatGPT may append new User/Assistant units under an already-known `data-turn-key`.
+- If the user sends additional messages while ChatGPT is working, follow the newest relevant post-send response rather than remaining pinned to obsolete content.
+- Track the parent `turnKey` as context/DOM scope, not as the sole response identity.
+- A processed Assistant response must never trigger another continuation even when its parent turn also contains older or newer responses.
+- Never scan old Assistant messages for completion; evaluate only the Assistant content bound to the current tracked response.
 - Existing composer text must never be overwritten automatically.
 - After programmatic insertion, verify that actual composer text equals requested text before clicking Send.
 - Never use direct `innerHTML` mutation as the primary insertion mechanism.
@@ -78,34 +83,34 @@ All use the immediate composer/send path and safely supersede the currently trac
 
 Do not use substring matching such as `text.includes("סיימתי")`; text like `עדיין לא סיימתי` must not complete the run.
 
-Completion is determined from the final non-empty line of the current Assistant response, subject to valid handoff precedence.
+Completion is determined from the final non-empty line of the current tracked Assistant response, subject to valid handoff precedence.
 
 The Stop button is a strong generation signal, but very fast responses may complete without the runner observing it.
 
-For the currently verified UI, a `Regenerate response` action inside the tracked turn while no Stop button is active is authoritative completion evidence.
+For a normal one-response-per-turn case, a `Regenerate response` action inside the tracked turn while no Stop button is active is strong completion evidence. When a turn key is reused for a newer response, do **not** treat stale turn-level final UI from an older Assistant response as proof that the newly tracked response is complete.
 
-Once final UI appears, wait until Assistant text remains unchanged for `STABLE_MS` before evaluation. This is a DOM-settle guard, not a replacement completion heuristic.
+Once authoritative final UI appears, wait until Assistant text remains unchanged for `STABLE_MS` before evaluation. This is a DOM-settle guard, not a replacement completion heuristic.
 
-Stable-text timing remains a fallback when final UI is unavailable. With final UI present, the short stability window protects against evaluating an incomplete final DOM snapshot.
+Stable-text timing remains a fallback when final UI is unavailable or cannot be safely attributed to the tracked response. In particular, reused-turn responses may rely on generation end plus stable tracked response text instead of stale turn-level `Regenerate` controls.
 
-Do not leave a turn in `WAITING_FOR_RESPONSE` when final response UI is already present; use `WAITING_FOR_STABLE_RESPONSE` only while final text is settling.
+Do not leave a response waiting when authoritative final response UI is already present; use the stable-response phase only while final text is settling.
 
-If a tracked turn explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. If a queued intermediate message is already due it may supersede that terminated cycle; otherwise stop with a diagnosable error.
+If a tracked response explicitly terminates with UI such as `Stopped thinking` and has no Assistant body, do not wait indefinitely and do not automatically resend the interrupted prompt. If a queued intermediate message is already due it may supersede that terminated cycle; otherwise stop with a diagnosable error.
 
-Assistant-content detection must retain fallbacks for search-unit and selection-message containers. When a selection-message container is available, treat it as authoritative full Assistant response before individual Markdown fragments; a later auxiliary fragment must never hide an earlier handoff block.
+Assistant-content detection must retain fallbacks for search-unit and selection-message containers. When a selection-message container belonging to the tracked response is available, treat it as authoritative full Assistant response before individual Markdown fragments; a later auxiliary fragment must never hide an earlier handoff block.
 
-Re-resolve the tracked turn when virtualization replaces DOM nodes.
+Re-resolve the tracked turn/response when virtualization replaces DOM nodes.
 
 ## Delivery timeout and interruption recovery
 
-If the tracked Runner-sent turn shows the verified `Message delivery timed out. Please try again.` alert with a Retry button:
+If the tracked Runner-sent response context shows the verified `Message delivery timed out. Please try again.` alert with a Retry button:
 
-- click Retry inside that tracked turn exactly once,
+- click Retry inside that tracked context exactly once,
 - keep the same Runner cycle,
 - do not increment send/continuation counters,
 - never click Stop,
 - if Retry is unavailable, does not start, or the same cycle reaches the timeout again, stop with a diagnosable error,
-- never use a page-global Retry when a tracked-turn-scoped control is required.
+- never use a page-global Retry when a tracked-context-scoped control is required.
 
 If ChatGPT shows the exact recovery UI `Connection interrupted. Waiting for the complete answer`, that interruption is stronger evidence than a lingering global Stop button.
 
@@ -118,7 +123,7 @@ Do not evaluate arbitrary partial content. Recover a handoff only when:
 - the prompt-end marker is the final response text,
 - the only missing handoff marker is the final outer `[[/SEQUENCE_RUNNER_NEW_CHAT]]`.
 
-Otherwise keep waiting for recovery. Never promote a bare interrupted `סיימתי` to global completion. A deferred first Runner send may yield to a newer external turn only when that turn contains an unambiguous safe handoff.
+Otherwise keep waiting for recovery. Never promote a bare interrupted `סיימתי` to global completion. A deferred first Runner send may yield to a newer external response only when that response contains an unambiguous safe handoff.
 
 ## Long-running responses
 
@@ -210,13 +215,13 @@ Existing-ready must not alter automatic handoff behavior.
 
 Intermediate messages may be queued for the next safe boundary, queued for N additional completed Runner responses, or explicitly sent immediately by the user while ChatGPT is responding.
 
-Immediate send is a user-only override. It must use the normal composer/send path, never click Stop, safely supersede the old tracked cycle, and track the new sent message as active.
+Immediate send is a user-only override. It must use the normal composer/send path, never click Stop, safely supersede the old tracked cycle, and track the new sent message/response pair even if ChatGPT appends both inside an existing turn key.
 
 At the same boundary, explicit step-limit safety outranks intermediate messages; a due user-queued intermediate message outranks ordinary completion/handoff processing according to existing boundary precedence.
 
-Queued messages must preserve one-send/one-completed-turn and must not cause duplicate continuation sends.
+Queued messages must preserve one-send/one-completed-response and must not cause duplicate continuation sends.
 
-If automatic continuation is blocked by composer text or external/manual activity, do not fail. Preserve the pending automatic send and its original pre-continuation turn snapshot. Before retrying, check whether a newer user-created turn appeared after that snapshot. If yes, cancel the stale continuation and evaluate the newer Assistant response first. Otherwise resume only when composer is empty and ChatGPT is idle. Preserve the same snapshot across repeated deferrals.
+If automatic continuation is blocked by composer text or external/manual activity, do not fail. Preserve the pending automatic send and its original pre-continuation conversation snapshot. Before retrying, check whether newer User/Assistant activity appeared after that snapshot. If yes, cancel the stale continuation and evaluate the newer Assistant response first. Otherwise resume only when composer is empty and ChatGPT is idle. Preserve the same snapshot across repeated deferrals.
 
 The panel must expose queued intermediate messages, not only a count. Users must be able to edit text, change relative schedule, delete items, and reorder messages sharing the same target boundary without silently changing scheduling semantics across different boundaries.
 
@@ -229,9 +234,9 @@ The panel reports operational chat/run metrics and supports a safe step limit co
 - minimizing collapses height rather than leaving an empty shell
 - place controls by user utility/frequency: start config, live metrics, intermediate messages, run limits, long-running-response controls, diagnostics last unless a concrete usability reason overrides this
 - step limit is a boundary between completed responses and must never interrupt active generation
-- changing/clearing a limit must not create duplicate sends or violate one-send/one-turn
+- changing/clearing a limit must not create duplicate sends or violate one-send/one-response
 - after DONE, STOPPED, or ERROR, the mounted runner must support a fresh run without reinjection
-- restart clears run-specific processed-turn keys, queues, pending sends, counters, and limits; restart observers/timers exactly once; preserve panel layout preferences
+- restart clears run-specific processed-response/unit tracking, queues, pending sends, counters, and limits; restart observers/timers exactly once; preserve panel layout preferences
 
 ## Manual stop
 

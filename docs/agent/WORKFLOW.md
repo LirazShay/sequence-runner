@@ -23,16 +23,16 @@ After writing, fetch the affected file or compare the branch again and verify th
 Use the normal repository path:
 
 1. work on a feature branch, never directly on `main`,
-2. edit repository files through the normal GitHub tools available to the chat,
-3. use local/sandbox execution for editing, builds and tests when useful,
+2. edit canonical source, tests and documentation through the normal GitHub tools available to the chat,
+3. use local/sandbox execution for editing, builds and tests when useful and available,
 4. verify before pushing/committing when equivalent local checks are available,
 5. open a PR,
-6. let CI act as the independent gate,
+6. let CI build the generated bookmarklet, run the independent regression gate, and keep `runner.min.js` synchronized when all checks pass,
 7. merge only when the required checks are green.
 
 Do not switch to GitHub Actions, Base64 transport, Git packs, remote workspaces, or another ad-hoc transport merely because a temporary sandbox lacks `git push`, network access, or credentials.
 
-If a large-file write through the GitHub connector is blocked, do not change the workflow. Keep working through GitHub and make the change as small and focused as possible; one blocked call is not evidence that GitHub access is broken.
+If a large-file write through the GitHub connector is blocked, do not change the workflow. Keep working through GitHub and make the canonical change as small and focused as possible; one blocked call is not evidence that GitHub access is broken. Generated `runner.min.js` is the explicit exception described below and should be produced by the repository build rather than hand-edited or transported manually.
 
 ## Recovery after interruption
 
@@ -48,13 +48,16 @@ If a summary/local artifact disagrees with GitHub, GitHub wins. Reconcile before
 
 Do not infer that a capability is unavailable merely because one temporary execution environment lacks it. Check the project’s normal connector/tool path first.
 
-## CI is verification, not a code editor
+## CI is verification plus generated-distribution synchronization
 
-- Do not create or modify a temporary GitHub Actions workflow whose purpose is to edit or patch repository files, generate a development commit, or push ordinary implementation changes.
-- GitHub Actions is an independent verification/gating mechanism. Implement changes through normal repository edits and commits on a feature branch, verify with the available execution environment, then let CI validate the resulting commit.
+- Do not create or modify a temporary GitHub Actions workflow whose purpose is to edit or patch canonical source, tests, documentation, or ordinary implementation files.
+- GitHub Actions remains the independent verification/gating mechanism for canonical changes made on a feature branch.
+- The repository's permanent regression workflow has one narrow write exception: after `runner.js` is built and the full regression suite passes, it may commit the generated `runner.min.js` back to the same repository branch when that file differs.
+- That generated commit must contain only `runner.min.js`; CI must never use this exception to modify `runner.js`, tests, documentation, workflow logic, or other source files.
+- Never hand-edit `runner.min.js`. Its only valid content is the output of `scripts/build-bookmarklet.mjs` from the checked-out canonical `runner.js`.
+- A CI-generated bookmarklet commit is build synchronization, not an implementation/debugging mechanism. Root-cause fixes still happen in canonical source or tests before CI runs.
 - Do not use repeated `push -> CI -> patch -> push` cycles as the normal debugging loop when equivalent checks can run before pushing.
-- A workflow may write repository contents only when the repository’s intended product/automation design explicitly requires that write behavior and the task itself is to build or maintain that automation. Never use that exception as a workaround for ordinary code editing.
-- Prefer targeted tests first, then the required full regression before PR/merge.
+- Prefer targeted tests first when available, then the required full regression before PR/merge.
 
 ## CI/test failure RCA
 
