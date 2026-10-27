@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -17,8 +17,10 @@ jobs:
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
-      - name: Checkout
+      - name: Checkout source branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -32,23 +34,24 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
-      - name: Build bookmarklet artifact
-        run: |
-          node scripts/build-bookmarklet.mjs
-          mkdir -p build-artifacts
-          cp runner.min.js build-artifacts/runner.min.js
-          git checkout -- runner.min.js
-
-      - name: Upload bookmarklet artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sequence-runner-bookmarklet
-          path: build-artifacts/runner.min.js
-          if-no-files-found: error
-          retention-days: 7
+      - name: Build bookmarklet
+        run: node scripts/build-bookmarklet.mjs
 
       - name: Run regression suite
         run: npm test
+
+      - name: Commit generated bookmarklet
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          if git diff --quiet -- runner.min.js; then
+            echo "runner.min.js is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runner.min.js
+          git commit -m "Regenerate bookmarklet"
+          git push origin "HEAD:${{ github.head_ref || github.ref_name }}"
 
       - name: Upload failure evidence
         if: failure()
