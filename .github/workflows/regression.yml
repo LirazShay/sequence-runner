@@ -32,6 +32,21 @@ jobs:
       - name: Verify Chrome
         run: google-chrome --version
 
+      - name: Build bookmarklet artifact
+        run: |
+          node scripts/build-bookmarklet.mjs
+          mkdir -p build-artifacts
+          cp runner.min.js build-artifacts/runner.min.js
+          git checkout -- runner.min.js
+
+      - name: Upload bookmarklet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sequence-runner-bookmarklet
+          path: build-artifacts/runner.min.js
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Run regression suite
         run: npm test
 
