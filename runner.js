@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.42";
+    const VERSION = "3.43";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -52,11 +52,13 @@
         regenerateButton: 'button[aria-label="Regenerate response"]'
     });
 
-    const DIAGNOSTIC_SCHEMA_VERSION = 1;
+    const DIAGNOSTIC_SCHEMA_VERSION = 2;
     const DIAGNOSTIC_SELECTORS = Object.freeze([
         '[data-turn-key]',
         '[data-user-message-bubble="true"]',
         '[data-markdown-text-style="assistant-message"]',
+        '[data-content-search-unit-key]',
+        '[data-chatgpt-search-unit-key]',
         '[data-content-search-unit-key$=":assistant"]',
         '[data-chatgpt-search-unit-key$=":assistant"]',
         '[data-chatgpt-selection-message-id]',
@@ -1169,6 +1171,245 @@
         return turn?.getAttribute("data-turn-key") || null;
     }
 
+    function getConversationUnitKey(unit) {
+        return (
+            unit?.getAttribute?.("data-content-search-unit-key") ||
+            unit?.getAttribute?.("data-chatgpt-search-unit-key") ||
+            null
+        );
+    }
+
+    function getConversationUnitRole(unit) {
+        const key = getConversationUnitKey(unit) || "";
+        const match = key.match(/:(user|assistant)$/);
+        return match ? match[1] : null;
+    }
+
+    function getConversationUnits(root) {
+        const scope = root || document;
+        const byKey = new Map();
+
+        [
+            ...scope.querySelectorAll(
+                "[data-content-search-unit-key],[data-chatgpt-search-unit-key]"
+            )
+        ].forEach(function (unit) {
+            const key = getConversationUnitKey(unit);
+
+            if (!key) {
+                return;
+            }
+
+            const existing = byKey.get(key);
+            const contentUnit =
+                unit.hasAttribute("data-content-search-unit-key");
+
+            if (
+                !existing ||
+                contentUnit
+            ) {
+                byKey.set(key, unit);
+            }
+        });
+
+        return [...byKey.entries()].map(
+            function ([key, element]) {
+                return {
+                    key,
+                    role:
+                        getConversationUnitRole(element),
+                    element
+                };
+            }
+        );
+    }
+
+    function getConversationUnitKeySnapshot() {
+        return new Set(
+            getConversationUnits(document).map(
+                function (unit) {
+                    return unit.key;
+                }
+            )
+        );
+    }
+
+    function getConversationUnitText(unit) {
+        const element = unit?.element || unit;
+
+        if (!element) {
+            return "";
+        }
+
+        const userMessage =
+            element.querySelector?.(
+                SELECTORS.userMessage
+            );
+
+        const target = userMessage || element;
+
+        return normalizeText(
+            target.innerText ||
+            target.textContent ||
+            ""
+        );
+    }
+
+    function findPostSendUserUnit(cycle) {
+        if (
+            !cycle?.prompt ||
+            !cycle.beforeUnitKeys
+        ) {
+            return null;
+        }
+
+        const expected = normalizeText(
+            cycle.prompt
+        );
+
+        return getConversationUnits(document)
+            .filter(function (unit) {
+                return (
+                    unit.role === "user" &&
+                    !cycle.beforeUnitKeys.has(
+                        unit.key
+                    ) &&
+                    getConversationUnitText(
+                        unit
+                    ) === expected
+                );
+            })
+            .at(-1) || null;
+    }
+
+    function findCycleAssistantUnit(
+        cycle,
+        turn
+    ) {
+        if (
+            !cycle?.sameTurnContinuation ||
+            !cycle.postSendUserUnitKey ||
+            !turn
+        ) {
+            return null;
+        }
+
+        const units =
+            getConversationUnits(turn);
+        const userIndex = units.findIndex(
+            function (unit) {
+                return (
+                    unit.key ===
+                    cycle.postSendUserUnitKey
+                );
+            }
+        );
+
+        if (userIndex < 0) {
+            return null;
+        }
+
+        return units
+            .slice(userIndex + 1)
+            .filter(function (unit) {
+                return (
+                    unit.role === "assistant" &&
+                    !cycle.beforeUnitKeys?.has(
+                        unit.key
+                    )
+                );
+            })
+            .at(-1) || null;
+    }
+
+    function getAssistantMessageFromUnit(unit) {
+        const element = unit?.element || unit;
+
+        if (!element) {
+            return null;
+        }
+
+        const selectionMessage =
+            element.querySelector?.(
+                "[data-chatgpt-selection-message-id]"
+            );
+
+        if (selectionMessage) {
+            return selectionMessage;
+        }
+
+        const markdown = [
+            ...(element.querySelectorAll?.(
+                SELECTORS.assistantMessage
+            ) || [])
+        ].at(-1);
+
+        return markdown || element;
+    }
+
+    function getCycleAssistantMessage(
+        cycle,
+        turn
+    ) {
+        if (!cycle?.sameTurnContinuation) {
+            return getAssistantMessage(turn);
+        }
+
+        const unit =
+            findCycleAssistantUnit(
+                cycle,
+                turn
+            );
+
+        if (!unit) {
+            return null;
+        }
+
+        if (
+            cycle.postSendAssistantUnitKey !==
+            unit.key
+        ) {
+            cycle.postSendAssistantUnitKey =
+                unit.key;
+
+            record(
+                "same-turn-assistant-unit-tracked",
+                {
+                    id: cycle.id,
+                    turnKey:
+                        cycle.turnKey,
+                    assistantUnitKey:
+                        unit.key
+                }
+            );
+        }
+
+        return getAssistantMessageFromUnit(
+            unit
+        );
+    }
+
+    function getCycleAssistantText(
+        cycle,
+        turn
+    ) {
+        const assistant =
+            getCycleAssistantMessage(
+                cycle,
+                turn
+            );
+
+        if (!assistant) {
+            return "";
+        }
+
+        return normalizeText(
+            assistant.innerText ||
+            assistant.textContent ||
+            ""
+        );
+    }
+
     function scoreTurnNode(turn) {
         if (!turn) {
             return -1;
@@ -1929,7 +2170,10 @@
 
                 if (
                     activeTurn &&
-                    getAssistantText(activeTurn)
+                    getCycleAssistantText(
+                        cycle,
+                        activeTurn
+                    )
                 ) {
                     return "assistant-visible";
                 }
@@ -3112,6 +3356,12 @@
                     ? null
                     : Math.max(0, Date.now() - cycle.sentAt),
             turnKey: cycle.turnKey ?? null,
+            postSendUserUnitKey:
+                cycle.postSendUserUnitKey ?? null,
+            postSendAssistantUnitKey:
+                cycle.postSendAssistantUnitKey ?? null,
+            sameTurnContinuation:
+                !!cycle.sameTurnContinuation,
             sawStop: !!cycle.sawStop,
             lastTextLength:
                 cycle.lastText == null
@@ -3133,7 +3383,11 @@
             processed: !!cycle.processed,
             beforeTurnKeys: cycle.beforeKeys
                 ? [...cycle.beforeKeys]
-                : []
+                : [],
+            beforeConversationUnitKeys:
+                cycle.beforeUnitKeys
+                    ? [...cycle.beforeUnitKeys]
+                    : []
         };
     }
 
@@ -4984,31 +5238,79 @@
                 cycle.beforeKeys
             );
 
-        const resolved =
-            latestPostSendTurn || current;
+        if (latestPostSendTurn) {
+            const resolvedKey =
+                getTurnKey(latestPostSendTurn);
 
-        if (!resolved) {
-            return null;
+            if (
+                resolvedKey &&
+                resolvedKey !== cycle.turnKey
+            ) {
+                record("turn-rebound", {
+                    id: cycle.id,
+                    from: cycle.turnKey,
+                    to: resolvedKey,
+                    reason: "latest-post-send-turn"
+                });
+
+                cycle.turnKey = resolvedKey;
+            }
+
+            cycle.sameTurnContinuation = false;
+            cycle.postSendUserUnitKey = null;
+            cycle.postSendAssistantUnitKey = null;
+            return latestPostSendTurn;
         }
 
-        const resolvedKey =
-            getTurnKey(resolved);
+        if (!cycle.postSendUserUnitKey) {
+            const userUnit =
+                findPostSendUserUnit(cycle);
 
-        if (
-            resolvedKey &&
-            resolvedKey !== cycle.turnKey
-        ) {
-            record("turn-rebound", {
-                id: cycle.id,
-                from: cycle.turnKey,
-                to: resolvedKey,
-                reason: "latest-post-send-turn"
-            });
+            if (userUnit) {
+                const ownerTurn =
+                    userUnit.element.closest(
+                        SELECTORS.turn
+                    );
+                const ownerKey =
+                    getTurnKey(ownerTurn);
 
-            cycle.turnKey = resolvedKey;
+                if (ownerTurn && ownerKey) {
+                    cycle.postSendUserUnitKey =
+                        userUnit.key;
+                    cycle.sameTurnContinuation =
+                        cycle.beforeKeys.has(
+                            ownerKey
+                        );
+
+                    if (
+                        ownerKey !==
+                        cycle.turnKey
+                    ) {
+                        cycle.turnKey =
+                            ownerKey;
+                    }
+
+                    if (
+                        cycle.sameTurnContinuation
+                    ) {
+                        record(
+                            "same-turn-user-unit-tracked",
+                            {
+                                id: cycle.id,
+                                turnKey:
+                                    ownerKey,
+                                userUnitKey:
+                                    userUnit.key
+                            }
+                        );
+                    }
+
+                    return ownerTurn;
+                }
+            }
         }
 
-        return resolved;
+        return current;
     }
 
     function getComposerText() {
@@ -5076,6 +5378,11 @@
                 opts.label || "external",
             prompt: null,
             beforeKeys: new Set(baseline),
+            beforeUnitKeys:
+                getConversationUnitKeySnapshot(),
+            postSendUserUnitKey: null,
+            postSendAssistantUnitKey: null,
+            sameTurnContinuation: false,
             sentAt:
                 opts.startedAt || Date.now(),
             turnKey,
@@ -5406,6 +5713,8 @@
             const beforeKeys = new Set(
                 getTurns().map(getTurnKey)
             );
+            const beforeUnitKeys =
+                getConversationUnitKeySnapshot();
 
             const sendButton =
                 await prepareComposerSend(
@@ -5485,6 +5794,10 @@
                 label: cycleLabel,
                 prompt: message,
                 beforeKeys,
+                beforeUnitKeys,
+                postSendUserUnitKey: null,
+                postSendAssistantUnitKey: null,
+                sameTurnContinuation: false,
                 sentAt: Date.now(),
                 turnKey: null,
                 sawStop:
@@ -5508,6 +5821,8 @@
                 label: cycleLabel,
                 beforeTurnCount:
                     beforeKeys.size,
+                beforeConversationUnitCount:
+                    beforeUnitKeys.size,
                 immediate: true,
                 source
             });
@@ -5629,6 +5944,8 @@
         const beforeKeys = new Set(
             getTurns().map(getTurnKey)
         );
+        const beforeUnitKeys =
+            getConversationUnitKeySnapshot();
 
         let sendButton;
 
@@ -5676,6 +5993,10 @@
             label,
             prompt,
             beforeKeys,
+            beforeUnitKeys,
+            postSendUserUnitKey: null,
+            postSendAssistantUnitKey: null,
+            sameTurnContinuation: false,
             sentAt: Date.now(),
             turnKey: null,
             sawStop: false,
@@ -5696,7 +6017,9 @@
         record("send", {
             id,
             label,
-            beforeTurnCount: beforeKeys.size
+            beforeTurnCount: beforeKeys.size,
+            beforeConversationUnitCount:
+                beforeUnitKeys.size
         });
 
         sendButton.click();
@@ -6555,7 +6878,10 @@
         }
 
         const text =
-            getAssistantText(turn);
+            getCycleAssistantText(
+                cycle,
+                turn
+            );
 
         const connectionInterrupted =
             getConnectionInterruptedStatus(turn);
@@ -6663,10 +6989,13 @@
         }
 
         const finalUiSeen =
+            !cycle.sameTurnContinuation &&
             hasFinalUi(turn);
 
         const terminalMarker =
-            !stopButton && !text
+            !cycle.sameTurnContinuation &&
+            !stopButton &&
+            !text
                 ? getTerminalResponseMarker(turn)
                 : null;
 
@@ -7003,6 +7332,8 @@
                 "aria-label",
                 "disabled",
                 "data-turn-key",
+                "data-content-search-unit-key",
+                "data-chatgpt-search-unit-key",
                 "data-markdown-text-style"
             ]
         });
@@ -7089,7 +7420,12 @@
                     ? Object.assign(
                           {},
                           currentCycle,
-                          { beforeKeys: undefined }
+                          {
+                              beforeKeys:
+                                  undefined,
+                              beforeUnitKeys:
+                                  undefined
+                          }
                       )
                     : null
             };
