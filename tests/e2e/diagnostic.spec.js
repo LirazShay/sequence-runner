@@ -51,7 +51,7 @@ test("diagnostic snapshot is versioned, self-contained and non-mutating during a
   });
 
   expect(result.after).toEqual(result.before);
-  expect(result.snapshot.diagnosticSchemaVersion).toBe(1);
+  expect(result.snapshot.diagnosticSchemaVersion).toBe(2);
   expect(result.snapshot.version).toBe(expectedRunnerVersion);
   expect(result.snapshot.stateName).toBe("GENERATING");
   expect(result.snapshot.currentTurnKey).toBeTruthy();
@@ -130,7 +130,7 @@ test("panel diagnostic action downloads the same versioned JSON contract", async
   expect(downloadPath).toBeTruthy();
   const parsed = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
 
-  expect(parsed.diagnosticSchemaVersion).toBe(1);
+  expect(parsed.diagnosticSchemaVersion).toBe(2);
   expect(parsed.runner.version).toBe(expectedRunnerVersion);
   expect(parsed.page.url).toContain("mock.local");
   expect(parsed.selectors['[data-turn-key]']).toBeTruthy();
