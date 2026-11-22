@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.46";
+    const VERSION = "3.47";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -1791,6 +1791,10 @@
             normalizeText(
                 lastSuccessfulHandoffPrompt
             );
+        const comparablePreviouslySentPrompt =
+            normalizeRestoredHandoffText(
+                previouslySentPrompt
+            );
 
         const ready = await waitUntil(
             function () {
@@ -1830,14 +1834,22 @@
                         candidate
                     );
 
-                if (text && text !== previouslySentPrompt) {
+                if (
+                    text &&
+                    (
+                        !previouslySentPrompt ||
+                        normalizeRestoredHandoffText(text) !==
+                            comparablePreviouslySentPrompt
+                    )
+                ) {
                     return null;
                 }
 
                 return {
                     composer: candidate,
                     restoredSentDraft:
-                        !!text && !!previouslySentPrompt
+                        !!text && !!previouslySentPrompt,
+                    restoredDraftText: text
                 };
             },
             CONFIG.NAVIGATION_TIMEOUT_MS,
@@ -1872,7 +1884,7 @@
             // Only its exact restored copy may be cleared here.
             const cleared = await rollbackComposerWrite(
                 composer,
-                previouslySentPrompt,
+                ready.restoredDraftText,
                 "runner-handoff",
                 "restored-sent-draft"
             );
@@ -4726,6 +4738,13 @@
             composer.value ||
             ""
         );
+    }
+
+    function normalizeRestoredHandoffText(text) {
+        // ChatGPT can collapse blank paragraphs when restoring a sent draft.
+        // Preserve all nonblank content; do not use broad whitespace matching.
+        return normalizeText(text)
+            .replace(/\n[ \t]*\n+/g, "\n");
     }
 
     function createComposerConflictError(message, code) {
