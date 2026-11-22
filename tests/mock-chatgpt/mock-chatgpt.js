@@ -380,6 +380,27 @@
     }, Number(response.delayMs ?? 80));
   }
 
+  function runConversationLengthLimit(turn) {
+    const alert = document.createElement("aside");
+    alert.setAttribute("role", "alert");
+
+    const message = document.createElement("div");
+    message.textContent =
+      "You've reached the maximum length for this conversation, but you can keep talking by starting a new chat.";
+
+    const newChat = document.createElement("button");
+    newChat.type = "button";
+    newChat.textContent = "Start new chat";
+    newChat.addEventListener("click", () => performNewChat("regular"));
+
+    alert.append(message, newChat);
+    turn.appendChild(alert);
+
+    record("conversation-length-limit", {
+      turnKey: turn.getAttribute("data-turn-key")
+    });
+  }
+
   function runDeliveryTimeout(turn, response) {
     const alert = document.createElement("aside");
     alert.setAttribute("role", "alert");
@@ -446,6 +467,11 @@
 
     if (selected.type === "delivery-timeout") {
       runDeliveryTimeout(turn, selected);
+      return;
+    }
+
+    if (selected.type === "conversation-length-limit") {
+      runConversationLengthLimit(turn);
       return;
     }
 
