@@ -77,7 +77,7 @@ If Composer mode is present, select and confirm Chat before inserting the handof
 
 ## Response DOM behavior
 
-Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace nodes.
+Re-resolve the current turn against the post-send DOM when necessary because virtualization may replace nodes. ChatGPT may retain hidden conversation turns from other chat views later in DOM order. Initial in-flight adoption in existing-ready mode must bind the newest visible turn, not simply the last DOM turn; do not adopt an invisible turn when no visible candidate exists. Prefer visible nodes for duplicate turn keys and newly appearing turns. Diagnostic `TRACKED_TURN_HIDDEN` plus a different visible turn is a strong sign of incorrect binding.
 
 Assistant-content detection must retain fallbacks for assistant search-unit and selection-message containers, not only the preferred Markdown wrapper.
 
