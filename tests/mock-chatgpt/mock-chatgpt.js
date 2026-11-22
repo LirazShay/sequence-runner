@@ -28,6 +28,7 @@
     activeGenerations: 0,
     navigationClearDelayMs: 0,
     secondChatDraft: null,
+    secondChatDraftDelayMs: 0,
     composerMode: "chat"
   };
 
@@ -556,11 +557,22 @@
             : state.secondChatDraft;
 
         if (restoredText) {
-          setComposerText(restoredText);
-          record("new-chat-draft-restored", {
-            kind: state.secondChatDraft,
-            length: restoredText.length
-          });
+          const restoreDraft = () => {
+            if (location.pathname !== newPath) {
+              return;
+            }
+            setComposerText(restoredText);
+            record("new-chat-draft-restored", {
+              kind: state.secondChatDraft,
+              length: restoredText.length
+            });
+          };
+
+          if (state.secondChatDraftDelayMs > 0) {
+            schedule(restoreDraft, state.secondChatDraftDelayMs);
+          } else {
+            restoreDraft();
+          }
         }
       }
 
@@ -617,6 +629,7 @@
     setComposerMode("chat", "reset", false);
     state.navigationClearDelayMs = Number(options.navigationClearDelayMs || 0);
     state.secondChatDraft = options.secondChatDraft || null;
+    state.secondChatDraftDelayMs = Number(options.secondChatDraftDelayMs || 0);
     state.defaultResponse = {
       type: "normal",
       text: "Mock response",
@@ -646,6 +659,9 @@
       }
       if (config.secondChatDraft !== undefined) {
         state.secondChatDraft = config.secondChatDraft;
+      }
+      if (config.secondChatDraftDelayMs !== undefined) {
+        state.secondChatDraftDelayMs = Number(config.secondChatDraftDelayMs);
       }
       record("scenario-set", {
         queuedResponses: state.responses.length,
