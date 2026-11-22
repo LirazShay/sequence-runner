@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.48";
+    const VERSION = "3.49";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -1466,8 +1466,12 @@
         }
 
         matches.sort(function (a, b) {
-            return scoreTurnNode(b) -
-                scoreTurnNode(a);
+            return (
+                Number(isElementVisible(b)) -
+                    Number(isElementVisible(a)) ||
+                scoreTurnNode(b) -
+                    scoreTurnNode(a)
+            );
         });
 
         return matches[0];
@@ -5378,7 +5382,9 @@
             }
         );
 
-        return candidates.at(-1) || null;
+        // Retained offscreen chat trees may appear later in document order.
+        // Never bind a new response to a hidden turn from another chat.
+        return candidates.filter(isElementVisible).at(-1) || null;
     }
 
     function resolveCycleTurn(cycle) {
@@ -5644,13 +5650,29 @@
         }
 
         const turns = getTurns();
+        // ChatGPT may retain hidden turns from other chat views after the
+        // active conversation. DOM order alone does not identify the
+        // currently generating response.
         const latestTurn =
-            turns.at(-1) || null;
+            turns.filter(isElementVisible).at(-1) || null;
+
+        if (!latestTurn) {
+            record("existing-ready-active-turn-not-visible", {
+                turnCount: turns.length
+            });
+            return false;
+        }
+
+        const latestTurnKey = getTurnKey(latestTurn);
         const baseline =
             turns
-                .slice(0, -1)
                 .map(getTurnKey)
-                .filter(Boolean);
+                .filter(function (key) {
+                    return (
+                        key &&
+                        key !== latestTurnKey
+                    );
+                });
 
         return adoptExternalTurn(
             baseline,
