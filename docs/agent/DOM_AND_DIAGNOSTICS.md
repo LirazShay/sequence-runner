@@ -67,7 +67,7 @@ Do not use direct `innerHTML` mutation as the primary insertion mechanism.
 
 ## SPA and handoff navigation
 
-After clicking New Chat, wait for the URL to change before writing to the composer. This prevents the old-composer SPA race.
+After clicking New Chat, wait for the URL to change before writing to the composer. This prevents the old-composer SPA race. Require the visible composer node and text to remain unchanged for a short settle window before using it; a cached draft may appear after the initially empty UI.
 
 Only after navigation completes may the new visible composer be used. If it is empty, continue normally. A previously sent Runner handoff prompt may be restored into this fresh composer by the ChatGPT UI; clear it only when it matches the full previously sent prompt from this Runner session after blank-line normalization (no broad whitespace matching), verify that clearing succeeded, and then continue. Never clear an unknown or user-edited draft; report a specific blocking error instead.
 

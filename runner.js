@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.47";
+    const VERSION = "3.48";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -16,6 +16,7 @@
         HANDOFF_PROMPT_END: "[[/NEXT_CHAT_PROMPT]]",
         NAVIGATION_TIMEOUT_MS: 15000,
         HANDOFF_MIN_READY_MS: 1000,
+        HANDOFF_COMPOSER_STABLE_MS: 500,
         COMPOSER_MODE_TIMEOUT_MS: 5000,
         SEND_BUTTON_READY_TIMEOUT_MS: 3000,
         STABLE_MS: 900,
@@ -1796,6 +1797,10 @@
                 previouslySentPrompt
             );
 
+        let readyComposer = null;
+        let readyText = null;
+        let readySince = 0;
+
         const ready = await waitUntil(
             function () {
                 const oldTurnStillVisible =
@@ -1813,6 +1818,9 @@
                     );
 
                 if (oldTurnStillVisible) {
+                    readyComposer = null;
+                    readyText = null;
+                    readySince = 0;
                     return null;
                 }
 
@@ -1826,6 +1834,9 @@
                     ) ||
                     getStopButton()
                 ) {
+                    readyComposer = null;
+                    readyText = null;
+                    readySince = 0;
                     return null;
                 }
 
@@ -1841,6 +1852,29 @@
                         normalizeRestoredHandoffText(text) !==
                             comparablePreviouslySentPrompt
                     )
+                ) {
+                    readyComposer = null;
+                    readyText = null;
+                    readySince = 0;
+                    return null;
+                }
+
+                // The home composer may initially be empty before
+                // ChatGPT asynchronously restores a cached draft.
+                // Only accept a node/text pair after it has settled.
+                if (
+                    readyComposer !== candidate ||
+                    readyText !== text
+                ) {
+                    readyComposer = candidate;
+                    readyText = text;
+                    readySince = Date.now();
+                    return null;
+                }
+
+                if (
+                    Date.now() - readySince <
+                    CONFIG.HANDOFF_COMPOSER_STABLE_MS
                 ) {
                     return null;
                 }
@@ -1874,6 +1908,13 @@
         }
 
         const composer = ready.composer;
+
+        record("handoff-composer-settled", {
+            restoredSentDraft:
+                ready.restoredSentDraft,
+            stableMs:
+                CONFIG.HANDOFF_COMPOSER_STABLE_MS
+        });
 
         if (ready.restoredSentDraft) {
             record("handoff-restored-sent-draft-detected", {
