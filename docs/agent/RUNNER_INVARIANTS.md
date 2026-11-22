@@ -196,7 +196,7 @@ Rules:
 - a due user-queued intermediate message keeps its existing boundary precedence over valid handoff
 - in a Project, use the exact current-Project New Chat action; outside a Project, use the visible general New Chat action
 - after clicking New Chat, wait for URL change before touching the composer
-- only use the new empty visible composer after navigation completes
+- only use the new empty visible composer after navigation completes; if ChatGPT restores an exact copy of a previously sent Runner handoff prompt, the Runner may clear that known sent copy with verified ownership and clear success; preserve any different draft
 - if the verified Composer mode toggle exists, select/confirm visible `Chat` (`aria-pressed="true"`) before sending; fail safely if Chat cannot be selected; absence of the toggle remains compatible
 - treat extracted continuation text as a new task in the fresh chat and reinstall the standard runner contract so later rollovers still work
 - do not construct Project conversation URLs manually when verified UI actions exist

@@ -44,6 +44,7 @@ function buildFastTestRunnerSource() {
 
   // The E2E lab is deterministic, so production wall-clock guards can be
   // shortened without changing runner decisions or DOM behavior under test.
+  source = replaceSingleTiming(source, "NAVIGATION_TIMEOUT_MS: 15000", "NAVIGATION_TIMEOUT_MS: 1200");
   source = replaceSingleTiming(source, "HANDOFF_MIN_READY_MS: 1000", "HANDOFF_MIN_READY_MS: 20");
   source = replaceSingleTiming(source, "SEND_BUTTON_READY_TIMEOUT_MS: 3000", "SEND_BUTTON_READY_TIMEOUT_MS: 120");
   source = replaceSingleTiming(source, "STABLE_MS: 900", "STABLE_MS: 120");

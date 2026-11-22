@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.45";
+    const VERSION = "3.46";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -363,6 +363,7 @@
     let pendingAutoSendLocked = false;
     let handoffInProgress = false;
     let handoffCount = 0;
+    let lastSuccessfulHandoffPrompt = null;
     const injectionQueue = [];
     let lastStatusMessage = null;
     let lastStatusColor = null;
@@ -1786,7 +1787,12 @@
             );
         }
 
-        const composer = await waitUntil(
+        const previouslySentPrompt =
+            normalizeText(
+                lastSuccessfulHandoffPrompt
+            );
+
+        const ready = await waitUntil(
             function () {
                 const oldTurnStillVisible =
                     getTurns().some(
@@ -1819,25 +1825,72 @@
                     return null;
                 }
 
-                const text = normalizeText(
-                    candidate.innerText ||
-                    candidate.textContent ||
-                    candidate.value ||
-                    ""
-                );
+                const text =
+                    getComposerElementText(
+                        candidate
+                    );
 
-                return text
-                    ? null
-                    : candidate;
+                if (text && text !== previouslySentPrompt) {
+                    return null;
+                }
+
+                return {
+                    composer: candidate,
+                    restoredSentDraft:
+                        !!text && !!previouslySentPrompt
+                };
             },
             CONFIG.NAVIGATION_TIMEOUT_MS,
             50
         );
 
-        if (!composer) {
+        if (!ready) {
+            const candidate = getComposer();
+            if (
+                candidate &&
+                isElementVisible(candidate) &&
+                getComposerElementText(candidate)
+            ) {
+                throw new Error(
+                    "The new chat composer contains an unrecognized draft; refusing to overwrite it."
+                );
+            }
+
             throw new Error(
                 "The old chat did not clear or the new composer did not become ready."
             );
+        }
+
+        const composer = ready.composer;
+
+        if (ready.restoredSentDraft) {
+            record("handoff-restored-sent-draft-detected", {
+                length: previouslySentPrompt.length
+            });
+
+            // A previous Runner handoff was already sent and completed.
+            // Only its exact restored copy may be cleared here.
+            const cleared = await rollbackComposerWrite(
+                composer,
+                previouslySentPrompt,
+                "runner-handoff",
+                "restored-sent-draft"
+            );
+
+            if (
+                !cleared ||
+                getComposer() !== composer ||
+                !isElementVisible(composer) ||
+                getComposerElementText(composer)
+            ) {
+                throw new Error(
+                    "The previously sent handoff draft could not be cleared safely."
+                );
+            }
+
+            record("handoff-restored-sent-draft-cleared", {
+                length: previouslySentPrompt.length
+            });
         }
 
         const composerMode =
@@ -5178,6 +5231,7 @@
         pendingAutoSendLocked = false;
         handoffInProgress = false;
         handoffCount = 0;
+        lastSuccessfulHandoffPrompt = null;
         lastStatusMessage = null;
         lastStatusColor = null;
 
@@ -6191,6 +6245,7 @@
             }
 
             handoffCount++;
+            lastSuccessfulHandoffPrompt = outgoingPrompt;
 
             record("handoff-sent", {
                 count: handoffCount,

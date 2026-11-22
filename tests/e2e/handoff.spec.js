@@ -198,3 +198,58 @@ test("malformed handoff stops with an explicit error instead of silently continu
   const error = log.findLast((entry) => entry.event === "error");
   expect(error?.message).toContain("Invalid new-chat handoff response");
 });
+
+test("a second handoff clears only a previously sent Runner prompt restored as a fresh-chat draft", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    secondChatDraft: "previous-handoff",
+    responses: [
+      { type: "normal", text: handoffResponse("FIRST_FRESH_CHAT") },
+      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(3);
+  expect(sent[1]).toContain("FIRST_FRESH_CHAT");
+  expect(sent[2]).toContain("SECOND_FRESH_CHAT");
+
+  const events = await harness.events();
+  expect(events.filter((event) => event.type === "new-chat-click")).toHaveLength(2);
+  expect(events.filter((event) => event.type === "new-chat-draft-restored")).toHaveLength(1);
+  expect(events.filter((event) => event.type === "send")).toHaveLength(3);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.filter((entry) => entry.event === "handoff-restored-sent-draft-detected")).toHaveLength(1);
+  expect(log.filter((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toHaveLength(1);
+  expect(log.some((entry) => entry.event === "error")).toBeFalsy();
+});
+
+test("a different draft in the new composer is preserved and blocks handoff", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    secondChatDraft: "USER_DRAFT_IN_FRESH_CHAT",
+    responses: [
+      { type: "normal", text: handoffResponse("FIRST_FRESH_CHAT") },
+      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+
+  const mock = await harness.page.evaluate(() => window.__mockChatGPT.getState());
+  expect(mock.composerText).toBe("USER_DRAFT_IN_FRESH_CHAT");
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  const error = log.findLast((entry) => entry.event === "error");
+  expect(error?.message).toContain("unrecognized draft");
+  expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeFalsy();
+});
