@@ -69,7 +69,7 @@ Do not use direct `innerHTML` mutation as the primary insertion mechanism.
 
 After clicking New Chat, wait for the URL to change before writing to the composer. This prevents the old-composer SPA race.
 
-Only after navigation completes may the new visible composer be used. If it is empty, continue normally. A previously sent Runner handoff prompt may be restored into this fresh composer by the ChatGPT UI; clear it only on an exact match with the full previously sent prompt from this Runner session, verify that clearing succeeded, and then continue. Never clear an unknown or user-edited draft; report a specific blocking error instead.
+Only after navigation completes may the new visible composer be used. If it is empty, continue normally. A previously sent Runner handoff prompt may be restored into this fresh composer by the ChatGPT UI; clear it only when it matches the full previously sent prompt from this Runner session after blank-line normalization (no broad whitespace matching), verify that clearing succeeded, and then continue. Never clear an unknown or user-edited draft; report a specific blocking error instead.
 
 In a Project, use the exact current Project’s new-chat action. Outside a Project, use the visible general New Chat action. Do not construct Project conversation URLs manually when a verified UI action exists.
 
