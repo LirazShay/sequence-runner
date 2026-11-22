@@ -1,5 +1,64 @@
 import { test, expect } from "./fixture.js";
 
+test("conversation length limit ends the cycle with a clear error, not completion or another send", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [{ type: "conversation-length-limit" }]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR");
+
+  const state = await harness.runnerState();
+  expect(state.completedResponseCount).toBe(0);
+  expect(await harness.sentMessages()).toHaveLength(1);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "conversation-length-limit-detected" &&
+    entry.id === 1
+  )).toBeTruthy();
+  expect(log.findLast((entry) => entry.event === "error")?.message)
+    .toContain("מגבלת אורך השיחה");
+
+  const snapshot = await harness.page.evaluate(() =>
+    window.__sequenceRunner.createDiagnosticSnapshot()
+  );
+  expect(snapshot.diagnosis.observations.some(
+    (entry) => entry.code === "CONVERSATION_LENGTH_LIMIT"
+  )).toBeTruthy();
+
+  const events = await harness.events();
+  expect(events.some((entry) => entry.type === "stop-click")).toBeFalsy();
+  expect(events.some((entry) => entry.type === "new-chat")).toBeFalsy();
+});
+
+test("starting a runner in an already full chat fails before sending another message", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [{ type: "conversation-length-limit" }]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("PREVIOUS_MANUAL_MESSAGE");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+  });
+
+  await expect.poll(
+    () => harness.page.locator('aside[role="alert"]').count()
+  ).toBe(1);
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR");
+
+  expect(await harness.sentMessages()).toEqual(["PREVIOUS_MANUAL_MESSAGE"]);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) =>
+    entry.event === "conversation-length-limit-detected" &&
+    entry.id === null
+  )).toBeTruthy();
+});
+
 test("Stopped thinking without an Assistant body exits WAITING_FOR_RESPONSE with a diagnosable error", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
