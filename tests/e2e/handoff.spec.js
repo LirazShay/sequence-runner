@@ -229,6 +229,30 @@ test("a second handoff clears only a previously sent Runner prompt restored as a
   expect(log.some((entry) => entry.event === "error")).toBeFalsy();
 });
 
+test("a second handoff recognizes previously sent content after blank lines were collapsed", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    secondChatDraft: "previous-handoff-collapsed-lines",
+    responses: [
+      { type: "normal", text: handoffResponse("FIRST_FRESH_CHAT") },
+      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(3);
+  expect(sent[2]).toContain("SECOND_FRESH_CHAT");
+
+  const events = await harness.events();
+  expect(events.filter((event) => event.type === "new-chat-draft-restored")).toHaveLength(1);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeTruthy();
+});
+
 test("a different draft in the new composer is preserved and blocks handoff", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
