@@ -158,7 +158,7 @@ The long-work split escalation is one-shot per continuous long-work episode:
 
 Startup must use the same tracked-response machinery rather than a separate busy-wait loop.
 
-In `existing-ready` mode, if ChatGPT is already generating when Runner starts, adopt that in-flight response as an external startup cycle so wake, interruption, completion, and handoff rules still apply. Do not count that observed pre-run response as a Runner response. Keep the compact first safety contract pending until it is actually sent or completion/handoff makes it unnecessary; wake or explicit immediate send must not silently discard it.
+In `existing-ready` mode, if ChatGPT is already generating when Runner starts, adopt the latest **visible** turn as that in-flight response, never a hidden retained turn from another chat view that happens to follow it in DOM order. If no visible turn exists, leave the first send pending until the response can be safely tracked or ChatGPT is idle. Visible nodes also take priority when binding newly appearing turns or resolving duplicate turn keys. Then track that response as an external startup cycle so wake, interruption, completion, and handoff rules still apply. Do not count that observed pre-run response as a Runner response. Keep the compact first safety contract pending until it is actually sent or completion/handoff makes it unnecessary; wake or explicit immediate send must not silently discard it.
 
 For ordinary existing/new-task startup, unrelated pre-existing generation may defer the first Runner send but must not receive an automatic wake. Wake tracking must survive temporary loss/replacement of the tracked turn DOM.
 

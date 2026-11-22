@@ -134,6 +134,63 @@ test("existing-ready adopts an already-active opening response before sending it
   expect(log.some((entry) => entry.event === "existing-ready-active-response-adopted")).toBeTruthy();
 });
 
+test("existing-ready ignores hidden retained chat turns even when they follow the active turn in DOM order", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: "Opening response complete.", finishDelayMs: 600 },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    window.__mockChatGPT.setComposerText("OPENING_ALREADY_SENT");
+    document.querySelector('form[data-chatgpt-composer] button[aria-label="Send"]').click();
+
+    const conversation = document.querySelector("#conversation");
+    const active = conversation.querySelector('[data-turn-key="mock-turn-1"]');
+
+    const hiddenOtherChat = document.createElement("article");
+    hiddenOtherChat.setAttribute("data-turn-key", "retained-other-chat-turn");
+    hiddenOtherChat.style.display = "none";
+    hiddenOtherChat.innerHTML =
+      '<div data-user-message-bubble="true">OLD_CHAT_USER</div>' +
+      '<div data-markdown-text-style="assistant-message">OLD_CHAT_RESPONSE</div>';
+    conversation.appendChild(hiddenOtherChat);
+
+    const hiddenDuplicate = active.cloneNode(true);
+    hiddenDuplicate.style.display = "none";
+    conversation.appendChild(hiddenDuplicate);
+  });
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__mockChatGPT.getState().activeGenerations)
+  ).toBe(1);
+
+  await harness.page.evaluate(() =>
+    window.__sequenceRunner.startExistingContext("steady", "autonomous", true)
+  );
+
+  await expect.poll(
+    () => harness.page.evaluate(() => window.__sequenceRunner.getState().currentCycle?.turnKey)
+  ).toBe("mock-turn-1");
+
+  await harness.waitForState("DONE", 6000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[0]).toBe("OPENING_ALREADY_SENT");
+  expect(sent[1]).toMatch(/^תמשיך לשלב הבא./);
+
+  const state = await harness.runnerState();
+  expect(state.completedResponseCount).toBe(1);
+
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  const adoption = log.find((entry) => entry.event === "existing-ready-active-response-adopted");
+  expect(adoption?.turnKey).toBe("mock-turn-1");
+  expect(log.some((entry) => entry.event === "error")).toBeFalsy();
+});
+
 test("existing-ready honors completion from the opening response already in flight", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
