@@ -27,6 +27,7 @@
     newChatCounter: 0,
     activeGenerations: 0,
     navigationClearDelayMs: 0,
+    secondChatDraft: null,
     composerMode: "chat"
   };
 
@@ -540,6 +541,27 @@
       conversation.replaceChildren();
       clearComposer();
       resetGeneration();
+
+      if (newChatId === 2 && state.secondChatDraft) {
+        const previousHandoff = state.events
+          .filter((event) =>
+            event.type === "send" &&
+            event.text.startsWith("זו המשימה שעליך לבצע כעת:")
+          )
+          .at(-1)?.text;
+        const restoredText = state.secondChatDraft === "previous-handoff"
+          ? previousHandoff
+          : state.secondChatDraft;
+
+        if (restoredText) {
+          setComposerText(restoredText);
+          record("new-chat-draft-restored", {
+            kind: state.secondChatDraft,
+            length: restoredText.length
+          });
+        }
+      }
+
       record("new-chat-ready", {
         path: location.pathname
       });
@@ -592,6 +614,7 @@
     state.newChatCounter = 0;
     setComposerMode("chat", "reset", false);
     state.navigationClearDelayMs = Number(options.navigationClearDelayMs || 0);
+    state.secondChatDraft = options.secondChatDraft || null;
     state.defaultResponse = {
       type: "normal",
       text: "Mock response",
@@ -618,6 +641,9 @@
       }
       if (config.navigationClearDelayMs != null) {
         state.navigationClearDelayMs = Number(config.navigationClearDelayMs);
+      }
+      if (config.secondChatDraft !== undefined) {
+        state.secondChatDraft = config.secondChatDraft;
       }
       record("scenario-set", {
         queuedResponses: state.responses.length,
