@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.44";
+    const VERSION = "3.45";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -23,6 +23,7 @@
         DELIVERY_RETRY_START_TIMEOUT_MS: 5000,
         DELIVERY_RETRY_MAX_ATTEMPTS: 1,
         DELIVERY_TIMEOUT_MESSAGE: "Message delivery timed out. Please try again.",
+        CONVERSATION_LENGTH_LIMIT_MESSAGE: "You\'ve reached the maximum length for this conversation",
         CONNECTION_INTERRUPTED_MESSAGE: "Connection interrupted. Waiting for the complete answer",
         LONG_WAIT_NOTICE_AFTER_MS: 5 * 60 * 1000,
         LONG_WAIT_NOTICE_EVERY_MS: 60 * 1000,
@@ -2073,6 +2074,36 @@
         return null;
     }
 
+    function getConversationLengthLimitAlert() {
+        return [...document.querySelectorAll('aside[role="alert"]')]
+            .find(function (alert) {
+                if (!isElementVisible(alert)) {
+                    return false;
+                }
+
+                const text = normalizeText(
+                    alert.innerText ||
+                    alert.textContent ||
+                    ""
+                );
+
+                return text.includes(
+                    CONFIG.CONVERSATION_LENGTH_LIMIT_MESSAGE
+                );
+            }) || null;
+    }
+
+    function stopForConversationLengthLimit(cycle) {
+        record("conversation-length-limit-detected", {
+            id: cycle?.id || null,
+            turnKey: cycle?.turnKey || null
+        });
+
+        fail(
+            "ChatGPT הגיע למגבלת אורך השיחה. ההודעה האחרונה לא קיבלה תשובה, ולכן לא ניתן להסיק שהמשימה כולה הושלמה. יש לבדוק את מצב העבודה ולהמשיך בצ׳אט חדש."
+        );
+    }
+
     async function recoverDeliveryFailure(cycle, failure) {
         if (
             stopped ||
@@ -3418,6 +3449,13 @@
 
     function diagnosticHypotheses(snapshot) {
         const observations = [];
+        if (getConversationLengthLimitAlert()) {
+            observations.push({
+                code: "CONVERSATION_LENGTH_LIMIT",
+                message: "ChatGPT has reached the maximum conversation length and requires a new chat."
+            });
+        }
+
         const currentTurn = snapshot.currentTurn;
         const currentCycleSnapshot = snapshot.runner.currentCycle;
 
@@ -5891,6 +5929,12 @@
             return false;
         }
 
+        // A blocked chat cannot accept any further automatic messages.
+        if (getConversationLengthLimitAlert()) {
+            stopForConversationLengthLimit(currentCycle);
+            return false;
+        }
+
         const opts = options || {};
         const deferWhenBlocked =
             opts.deferWhenBlocked !== false;
@@ -6816,6 +6860,13 @@
         const cycle = currentCycle;
 
         if (cycle.processed) {
+            return;
+        }
+
+        // A terminal platform alert is stronger than an absent Assistant body.
+        // It is not an Assistant completion marker or a handoff instruction.
+        if (getConversationLengthLimitAlert()) {
+            stopForConversationLengthLimit(cycle);
             return;
         }
 
