@@ -80,7 +80,8 @@ test("immediate message remains trackable when ChatGPT reuses the active turn ke
         type: "normal",
         text: "סיימתי",
         wrapper: "search-unit",
-        replaceActiveGeneration: true
+        replaceActiveGeneration: true,
+        finishDelayMs: 400
       }
     ]
   });
@@ -161,6 +162,44 @@ test("immediate message remains trackable when ChatGPT reuses the active turn ke
     window.__sequenceRunner.sendMessageImmediately("URGENT_SAME_TURN")
   );
   await harness.waitForSentCount(2);
+
+  // The live ChatGPT DOM can renumber search-unit keys after an immediate
+  // message is accepted. Wait until the Runner has bound the original IDs,
+  // then renumber both units without replacing the underlying response.
+  await expect.poll(
+    () => harness.page.evaluate(() =>
+      window.__sequenceRunner.getLog().some(
+        (entry) =>
+          entry.event === "same-turn-assistant-unit-tracked" &&
+          entry.id === 2
+      )
+    )
+  ).toBeTruthy();
+
+  await harness.page.evaluate(() => {
+    const turn = [...document.querySelectorAll("[data-turn-key]")].at(-1);
+    const turnKey = turn.getAttribute("data-turn-key");
+    const userUnit = turn.querySelector(
+      '[data-content-search-unit-key$=":3:user"]'
+    );
+    const assistantUnit = turn.querySelector(
+      '[data-content-search-unit-key$=":4:assistant"]'
+    );
+
+    if (!userUnit || !assistantUnit) {
+      throw new Error("Expected the originally tracked conversation units.");
+    }
+
+    userUnit.setAttribute(
+      "data-content-search-unit-key",
+      `${turnKey}:5:user`
+    );
+    assistantUnit.setAttribute(
+      "data-content-search-unit-key",
+      `${turnKey}:6:assistant`
+    );
+  });
+
   await harness.waitForState("DONE");
 
   const sent = await harness.sentMessages();
@@ -177,6 +216,15 @@ test("immediate message remains trackable when ChatGPT reuses the active turn ke
         entry.event === "response-complete" &&
         entry.id === 2 &&
         entry.done === true
+    )
+  ).toBeTruthy();
+  expect(
+    log.some(
+      (entry) =>
+        entry.event === "same-turn-user-unit-rebound" &&
+        entry.id === 2 &&
+        entry.from.endsWith(":3:user") &&
+        entry.to.endsWith(":5:user")
     )
   ).toBeTruthy();
 });

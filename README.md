@@ -114,6 +114,7 @@ START
 - A send lock prevents duplicate sends.
 - Each cycle records the turn keys that existed before sending.
 - After a Runner send, the newest turn created after that send is the active turn. If the user sends additional messages while ChatGPT is working, the Runner follows the newest post-send turn instead of staying pinned to the original Runner prompt text.
+- If ChatGPT renumbers conversation-unit keys during or after streaming (including after **Send now**), a reused-turn cycle rebinds its sent User unit by the exact prompt text and then finds the corresponding newer Assistant unit instead of waiting forever on stale keys.
 - A processed turn is never processed twice.
 - The script never scans old assistant messages for completion.
 - The Stop button is treated as a strong generation signal, but very fast responses can still complete without requiring that Stop was observed.

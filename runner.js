@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.43";
+    const VERSION = "3.44";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -5262,7 +5262,20 @@
             return latestPostSendTurn;
         }
 
-        if (!cycle.postSendUserUnitKey) {
+        // ChatGPT may renumber conversation unit keys after streaming
+        // completes. Rebind to the same sent User text when its old key
+        // disappears, rather than waiting forever for an obsolete key.
+        const trackedUserMissing =
+            cycle.sameTurnContinuation &&
+            cycle.postSendUserUnitKey &&
+            !getConversationUnits(current || document).some(
+                function (unit) {
+                    return unit.key ===
+                        cycle.postSendUserUnitKey;
+                }
+            );
+
+        if (!cycle.postSendUserUnitKey || trackedUserMissing) {
             const userUnit =
                 findPostSendUserUnit(cycle);
 
@@ -5275,12 +5288,32 @@
                     getTurnKey(ownerTurn);
 
                 if (ownerTurn && ownerKey) {
+                    const previousUserUnitKey =
+                        cycle.postSendUserUnitKey;
+
                     cycle.postSendUserUnitKey =
                         userUnit.key;
                     cycle.sameTurnContinuation =
                         cycle.beforeKeys.has(
                             ownerKey
                         );
+
+                    if (
+                        previousUserUnitKey &&
+                        previousUserUnitKey !==
+                            userUnit.key
+                    ) {
+                        cycle.postSendAssistantUnitKey = null;
+                        cycle.lastText = null;
+                        cycle.lastTextChangedAt = 0;
+
+                        record("same-turn-user-unit-rebound", {
+                            id: cycle.id,
+                            turnKey: ownerKey,
+                            from: previousUserUnitKey,
+                            to: userUnit.key
+                        });
+                    }
 
                     if (
                         ownerKey !==
