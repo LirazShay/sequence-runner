@@ -551,7 +551,9 @@
           .at(-1)?.text;
         const restoredText = state.secondChatDraft === "previous-handoff"
           ? previousHandoff
-          : state.secondChatDraft;
+          : state.secondChatDraft === "previous-handoff-collapsed-lines"
+            ? previousHandoff?.replace(/\n[ \t]*\n+/g, "\n")
+            : state.secondChatDraft;
 
         if (restoredText) {
           setComposerText(restoredText);
