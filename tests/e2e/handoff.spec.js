@@ -141,6 +141,80 @@ test("project handoff uses the exact project New Chat action and stays in the pr
   expect(mockState.path).toMatch(/^\/g\/g-p-mock\/c\/mock-chat-/);
 });
 
+test("Project handoff resolves the current sidebar Project by route ID without a breadcrumb", async ({ harness }) => {
+  await harness.load("http://mock.local/g/g-p-mock-market-flow-v2/c/start");
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: handoffResponse("SIDEBAR_PROJECT_HANDOFF") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+
+  await harness.page.evaluate(() => {
+    document.querySelector('nav[aria-label="Breadcrumb"]').remove();
+
+    const sidebar = document.querySelector(".sidebar");
+    const currentRow = document.createElement("div");
+    currentRow.setAttribute("data-app-action-sidebar-project-id", "g-p-mock");
+    currentRow.setAttribute("data-app-action-sidebar-project-label", "market-flow-v2");
+
+    const correctButton = document.querySelector('[data-mock-action="project-new-chat"]');
+    correctButton.setAttribute("aria-label", "New chat in market-flow-v2");
+    currentRow.append(correctButton);
+
+    // A button belonging to another Project with the same name must not be selected.
+    const unrelatedRow = document.createElement("div");
+    unrelatedRow.setAttribute("data-app-action-sidebar-project-id", "g-p-unrelated");
+    unrelatedRow.setAttribute("data-app-action-sidebar-project-label", "market-flow-v2");
+    const unrelatedButton = document.createElement("button");
+    unrelatedButton.type = "button";
+    unrelatedButton.textContent = "Wrong Project";
+    unrelatedButton.setAttribute("aria-label", "New chat in market-flow-v2");
+    unrelatedButton.addEventListener("click", () => {
+      window.__wrongProjectClicked = true;
+    });
+    unrelatedRow.append(unrelatedButton);
+    sidebar.prepend(unrelatedRow, currentRow);
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE");
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toContain("SIDEBAR_PROJECT_HANDOFF");
+
+  const events = await harness.events();
+  expect(events.find((event) => event.type === "new-chat-click")?.kind).toBe("project");
+
+  const wrongProjectClicked = await harness.page.evaluate(() => !!window.__wrongProjectClicked);
+  expect(wrongProjectClicked).toBe(false);
+});
+
+test("Project handoff refuses an unrelated sidebar Project instead of opening a regular chat", async ({ harness }) => {
+  await harness.load("http://mock.local/g/g-p-mock/c/start");
+  await harness.setScenario({
+    responses: [{ type: "normal", text: handoffResponse("MUST_STAY_IN_PROJECT") }]
+  });
+
+  await harness.page.evaluate(() => {
+    document.querySelector('nav[aria-label="Breadcrumb"]').remove();
+    const unrelatedRow = document.createElement("div");
+    unrelatedRow.setAttribute("data-app-action-sidebar-project-id", "g-p-unrelated");
+    unrelatedRow.setAttribute("data-app-action-sidebar-project-label", "Mock Project");
+    document.querySelector(".sidebar").append(unrelatedRow);
+  });
+
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR");
+
+  const events = await harness.events();
+  expect(events.some((event) => event.type === "new-chat-click")).toBe(false);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.findLast((entry) => entry.event === "error")?.message)
+    .toContain("no matching Project sidebar row or breadcrumb");
+});
+
 test("Deep work style and Collaborative decision mode persist across automatic handoff", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
