@@ -88,8 +88,9 @@ The current ChatGPT web UI was probed before implementation. The runner currentl
 - Composer: `[contenteditable="true"][data-composer-markdown]`
 - Send button: `button[aria-label="Send"]`
 - Generation indicator: `button[aria-label="Stop"]`
-- Project breadcrumb: `nav[aria-label="Breadcrumb"] a[href$="/project"]`
-- Project new-chat action: `button[aria-label^="New chat in "]`
+- Project sidebar row: `[data-app-action-sidebar-project-id]` (matched against the current Project ID in the chat URL), with `data-app-action-sidebar-project-label`
+- Legacy Project breadcrumb fallback: `nav[aria-label="Breadcrumb"] a[href$="/project"]`
+- Project new-chat action: `button[aria-label^="New chat in "]` scoped to the matching sidebar row when available
 - Regular new-chat action: visible `button[aria-label="New chat"]`
 - Composer mode group: `[role="group"][aria-label="Composer mode"]`; when present, `Chat` must be the visible button with `aria-pressed="true"` before an automatic handoff prompt is sent.
 
@@ -308,7 +309,7 @@ Behavior:
 - The next-chat prompt is **minimal but sufficient**. Prefer keeping durable continuation state in a verified external source of truth. Before handoff, update that source when important state is missing; include in the prompt only essential context that cannot be reconstructed from it. The key test is whether a fresh chat can reconstruct the current state and continue correctly without the previous chat history.
 - The handoff block must be the final content in the assistant response.
 - The prompt between the `NEXT_CHAT_PROMPT` markers must be non-empty.
-- Inside a Project chat, the runner identifies the current Project from the breadcrumb and clicks that Project's exact `New chat in <project>` action.
+- Inside a Project chat, the runner matches the current Project ID from the chat URL against its sidebar row, then uses that row's exact `New chat in <project>` action. On older ChatGPT layouts without those sidebar attributes it falls back to the Project breadcrumb; it never silently opens an ordinary chat if Project identification fails.
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition. The visible composer node and its current text must additionally remain unchanged for 500 ms before use, preventing a late draft restore after an initially empty composer.
 - A later handoff may open the fresh-chat page with the exact text of a handoff prompt the Runner previously sent restored as a stale draft (observed in ChatGPT). Only if that draft matches the complete previously sent Runner handoff prompt after normalizing blank paragraph separators (without changing the remaining content), the Runner clears and verifies it before continuing. Any other non-empty draft is preserved and blocks automatic handoff with a specific error; the Runner never replaces arbitrary composer text.
