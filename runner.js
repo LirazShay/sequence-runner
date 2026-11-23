@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.49";
+    const VERSION = "3.50";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -75,7 +75,10 @@
         'button[aria-label="Stop"]',
         'button[aria-label="Regenerate response"]',
         'button[data-testid="send-button"]',
-        'button[data-testid="stop-button"]'
+        'button[data-testid="stop-button"]',
+        '[data-app-action-sidebar-project-id]',
+        'button[aria-label^="New chat in "]',
+        'nav[aria-label="Breadcrumb"] a[href$="/project"]'
     ]);
 
     try {
@@ -1546,11 +1549,52 @@
             return null;
         }
 
-        const breadcrumb =
-            document.querySelector(
-                'nav[aria-label="Breadcrumb"] a[href$="/project"]'
+        // ChatGPT's newer sidebar exposes the stable Project ID even
+        // when the former breadcrumb is not rendered.
+        const routeProject = location.pathname.split("/")[2];
+        const sidebarRow = [
+            ...document.querySelectorAll(
+                "[data-app-action-sidebar-project-id]"
+            )
+        ].find(function (candidate) {
+            const id = candidate.getAttribute(
+                "data-app-action-sidebar-project-id"
+            );
+            return (
+                id &&
+                (routeProject === id ||
+                    routeProject.startsWith(id + "-")) &&
+                isElementVisible(candidate)
+            );
+        });
+
+        if (sidebarRow) {
+            const name = normalizeText(
+                sidebarRow.getAttribute(
+                    "data-app-action-sidebar-project-label"
+                ) || ""
             );
 
+            if (!name) {
+                throw new Error(
+                    "The current Project sidebar row has no label."
+                );
+            }
+
+            return {
+                name,
+                id: sidebarRow.getAttribute(
+                    "data-app-action-sidebar-project-id"
+                ),
+                row: sidebarRow,
+                href: null
+            };
+        }
+
+        // Retain support for the older, breadcrumb-based ChatGPT UI.
+        const breadcrumb = document.querySelector(
+            'nav[aria-label="Breadcrumb"] a[href$="/project"]'
+        );
         const name = normalizeText(
             breadcrumb?.innerText ||
             breadcrumb?.textContent ||
@@ -1559,37 +1603,35 @@
 
         if (!name) {
             throw new Error(
-                "Current chat is inside a Project, but the Project breadcrumb could not be identified."
+                "Current chat is inside a Project, but no matching Project sidebar row or breadcrumb was found."
             );
         }
 
         return {
             name,
-            href:
-                breadcrumb?.getAttribute(
-                    "href"
-                ) || null
+            id: null,
+            row: null,
+            href: breadcrumb.getAttribute("href")
         };
     }
 
     function findNewChatTarget() {
-        const project =
-            getCurrentProjectContext();
+        const project = getCurrentProjectContext();
 
         if (project) {
-            const expectedLabel =
-                "New chat in " +
-                project.name;
+            const expectedLabel = "New chat in " + project.name;
 
+            // Scope the action to the route-matched Project row,
+            // avoiding another Project with the same display name.
+            const scope = project.row || document;
             const button = [
-                ...document.querySelectorAll(
+                ...scope.querySelectorAll(
                     'button[aria-label^="New chat in "]'
                 )
             ].find(function (candidate) {
                 return (
-                    candidate.getAttribute(
-                        "aria-label"
-                    ) === expectedLabel &&
+                    candidate.getAttribute("aria-label") ===
+                        expectedLabel &&
                     isElementVisible(candidate)
                 );
             });
