@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.51";
+    const VERSION = "3.52";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -50,6 +50,7 @@
         assistantMessage: '[data-markdown-text-style="assistant-message"]',
         composer: '[contenteditable="true"][data-composer-markdown]',
         composerModeGroup: '[role="group"][aria-label="Composer mode"]',
+        projectHeaderLink: 'a.button-toolbar[data-discover="true"][aria-label][href$="/project"]',
         sendButton: 'button[aria-label="Send"],button[aria-label="שלח"]',
         stopButton: 'button[aria-label="Stop"],button[aria-label="עצור"]',
         regenerateButton: 'button[aria-label="Regenerate response"]'
@@ -77,6 +78,7 @@
         'button[aria-label="Regenerate response"]',
         'button[data-testid="send-button"]',
         'button[data-testid="stop-button"]',
+        SELECTORS.projectHeaderLink,
         '[data-app-action-sidebar-project-id]',
         'button[aria-label^="New chat in "]',
         'nav[aria-label="Breadcrumb"] a[href$="/project"]'
@@ -1553,6 +1555,52 @@
         );
     }
 
+    // The visible toolbar link opens the current Project home, which has a
+    // fresh-chat composer even when the sidebar is collapsed or absent.
+    function findProjectHeaderHome() {
+        if (!isProjectChatPath()) {
+            return null;
+        }
+
+        const routeProject = location.pathname.split("/")[2];
+        // Live Project routes can append a descriptive slug to the stable ID.
+        const projectId = routeProject.match(/^g-p-[0-9a-f]{32}(?=-|$)/i)?.[0] ||
+            routeProject;
+        const expectedPath = "/g/" + projectId + "/project";
+
+        const link = [...document.querySelectorAll(SELECTORS.projectHeaderLink)]
+            .find(function (candidate) {
+                const url = new URL(candidate.href, location.href);
+                return (
+                    url.origin === location.origin &&
+                    url.pathname === expectedPath &&
+                    !url.search &&
+                    !url.hash &&
+                    (!candidate.target || candidate.target === "_self") &&
+                    !candidate.hasAttribute("download") &&
+                    candidate.getAttribute("aria-disabled") !== "true" &&
+                    isElementVisible(candidate)
+                );
+            });
+
+        if (!link) {
+            return null;
+        }
+
+        return {
+            button: link,
+            kind: "project",
+            strategy: "project-header-home",
+            expectedPath,
+            project: {
+                name: normalizeText(link.getAttribute("aria-label")),
+                id: projectId,
+                row: null,
+                href: link.getAttribute("href")
+            }
+        };
+    }
+
     function getCurrentProjectContext() {
         if (!isProjectChatPath()) {
             return null;
@@ -1625,6 +1673,11 @@
     }
 
     function findNewChatTarget() {
+        const headerHome = findProjectHeaderHome();
+        if (headerHome) {
+            return headerHome;
+        }
+
         const project = getCurrentProjectContext();
 
         if (project) {
@@ -1654,6 +1707,7 @@
             return {
                 button,
                 kind: "project",
+                strategy: "project-sidebar-new-chat",
                 project
             };
         }
@@ -1673,6 +1727,7 @@
         return {
             button,
             kind: "regular",
+            strategy: "regular-new-chat",
             project: null
         };
     }
@@ -1814,12 +1869,24 @@
         const navigationStartedAt =
             Date.now();
 
+        record("handoff-navigation-target", {
+            strategy: target.strategy,
+            expectedPath: target.expectedPath || null
+        });
+
+        // Follow the verified UI link; do not synthesize a conversation URL.
+        // For Project home, require the exact same-project destination.
+        const destinationMatches = function () {
+            return !target.expectedPath ||
+                location.pathname === target.expectedPath;
+        };
+
         target.button.click();
 
         const newUrl = await waitUntil(
             function () {
-                return location.href !==
-                    oldUrl
+                return location.href !== oldUrl &&
+                    destinationMatches()
                     ? location.href
                     : null;
             },
@@ -1829,7 +1896,9 @@
 
         if (!newUrl) {
             throw new Error(
-                "New Chat navigation did not complete."
+                target.expectedPath
+                    ? "Project home navigation did not reach the expected Project."
+                    : "New Chat navigation did not complete."
             );
         }
 
@@ -1872,7 +1941,11 @@
                         }
                     );
 
-                if (oldTurnStillVisible) {
+                const projectHomeHasTurns =
+                    target.expectedPath &&
+                    getTurns().some(isElementVisible);
+
+                if (!destinationMatches() || oldTurnStillVisible || projectHomeHasTurns) {
                     readyComposer = null;
                     readyText = null;
                     readySince = 0;
@@ -2004,8 +2077,18 @@
         const composerMode =
             await ensureChatComposerMode();
 
+        if (
+            !destinationMatches() ||
+            (target.expectedPath && getTurns().some(isElementVisible))
+        ) {
+            throw new Error(
+                "Project home changed before the handoff prompt could be sent."
+            );
+        }
+
         return {
             kind: target.kind,
+            strategy: target.strategy,
             project: target.project,
             oldUrl,
             newUrl,
@@ -6421,6 +6504,8 @@
                 {
                     kind:
                         navigation.kind,
+                    strategy:
+                        navigation.strategy,
                     projectName:
                         navigation.project?.name ||
                         null,
