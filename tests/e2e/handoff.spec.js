@@ -327,6 +327,34 @@ test("a second handoff recognizes previously sent content after blank lines were
   expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeTruthy();
 });
 
+test("handoff clears a restored ordinary sent message from the old chat", async ({ harness }) => {
+  await harness.load();
+  await harness.setScenario({
+    secondChatDraft: "תמשיך לשלב הבא",
+    secondChatDraftDelayMs: 80,
+    responses: [
+      { type: "normal", text: handoffResponse("FIRST_FRESH_CHAT") },
+      { type: "normal", text: "MORE_WORK" },
+      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE", 5000);
+
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(4);
+  expect(sent[2]).toBe("תמשיך לשלב הבא");
+  expect(sent[3]).toContain("SECOND_FRESH_CHAT");
+  const events = await harness.events();
+  const restored = events.find(event => event.type === "new-chat-draft-restored");
+  expect(restored).toBeTruthy();
+  expect(events.filter(event => event.type === "send")[3].at).toBeGreaterThan(restored.at);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.filter(event => event.event === "handoff-restored-sent-draft-cleared")
+    .map(event => event.source)).toEqual(["old-chat-user-message"]);
+});
+
 test("a different draft in the new composer is preserved and blocks handoff", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
