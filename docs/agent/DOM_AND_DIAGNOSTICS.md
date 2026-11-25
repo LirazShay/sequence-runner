@@ -27,6 +27,9 @@ button[aria-label="Send"]
 // Generation signal
 button[aria-label="Stop"]
 
+// Preferred Project home toolbar link (exact same-origin Project ID)
+a.button-toolbar[data-discover="true"][aria-label][href$="/project"]
+
 // Project sidebar row (stable ID matches the URL's current Project)
 [data-app-action-sidebar-project-id]
 
@@ -48,7 +51,7 @@ button[aria-label="New chat"]
 
 When Composer mode exists, visible `Chat` is selected only when `aria-pressed="true"`. Automatic handoff must confirm/select Chat before sending the first prompt in the fresh chat.
 
-For new-chat selectors, use the visible element. In a Project, first match the current URL's Project ID to a sidebar row (`data-app-action-sidebar-project-id`, allowing a descriptive URL suffix), then require that row's exact `New chat in <current project>` action. Fall back to the legacy breadcrumb only when no matching sidebar row exists. Never select an unrelated Project action merely because its displayed name matches.
+For new-chat selectors, use the visible element. In a Project, prefer the verified header toolbar link with the exact same-origin Project home path matching the stable Project ID in the chat URL (which may append a descriptive slug). This works without the sidebar. If that link is absent, match the current Project ID to a sidebar row and require its exact `New chat in <current project>` action; retain the legacy breadcrumb fallback when no matching sidebar row exists. Never select an unrelated Project action merely because its displayed name matches.
 
 Selectors known not to work in the verified UI and not to be reintroduced without a fresh DOM probe:
 
@@ -77,7 +80,7 @@ After clicking New Chat, wait for the URL to change before writing to the compos
 
 Only after navigation completes may the new visible composer be used. If it is empty, continue normally. A previously sent Runner handoff prompt may be restored into this fresh composer by the ChatGPT UI; clear it only when it matches the full previously sent prompt from this Runner session after blank-line normalization (no broad whitespace matching), verify that clearing succeeded, and then continue. Never clear an unknown or user-edited draft; report a specific blocking error instead.
 
-In a Project, use the exact current Project's new-chat action scoped by the URL-matched sidebar ID, with the legacy breadcrumb as fallback. Outside a Project, use the visible general New Chat action. When the current Project cannot be identified, fail safely rather than opening a regular chat. Do not construct Project conversation URLs manually when a verified UI action exists.
+In a Project, prefer clicking the exact current Project header link to the Project home. Verify the exact destination route and that no visible conversation turns remain; then use the settled fresh composer. Recheck the destination after selecting Chat mode. If the link is absent, retain the URL-matched sidebar new-chat action and legacy breadcrumb fallback. Outside a Project, use the visible general New Chat action. When the current Project cannot be identified or navigation reaches the wrong destination, fail safely rather than opening a regular chat or sending to another Project. Do not construct Project conversation URLs manually when a verified UI action exists.
 
 If Composer mode is present, select and confirm Chat before inserting the handoff prompt. If the toggle exists but Chat cannot be selected, fail safely. A UI variant with no mode toggle may continue normally.
 
