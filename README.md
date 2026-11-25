@@ -284,6 +284,20 @@ __sequenceRunner.getMetrics()
 ```
 
 
+## Optional message-count rollover
+
+The **מעבר לצ׳אט חדש לפי כמות הודעות** control is off by default (empty field). Enter a positive integer, for example 30. The threshold counts detectable User and Assistant messages in the current chat, including existing history and manual messages, not the global Runner response counter. Hidden retained turns are excluded, duplicate turn and conversation-unit keys are deduplicated, and older UI variants fall back to message-body selectors. This is a DOM-observable count, not an official context-window limit; virtualized/unmounted history and fragmented fallback wrappers can affect it.
+
+At the next safe ordinary send boundary at or above the threshold, the Runner sends a checkpoint-and-handoff request instead of a normal continuation (or appends it to the initial contract when starting in an already long chat). The assistant must not begin a new work segment: it should persist and verify the current state in the task's existing source of truth, identify the precise next step, and return the standard handoff block with a minimal sufficient continuation prompt. If the task is genuinely complete, ordinary completion is still valid. No new chat is opened without a valid handoff. If the request returns neither a handoff nor true completion, the Runner stops with an explicit error rather than adding more work to the old chat.
+
+The threshold is live, applies independently in every automatically opened chat, and is cleared on fresh-run restart. Existing step limits, queued intermediate messages, valid handoffs, and genuine completion retain their existing priority. The threshold is a request trigger, not a hard cap: the checkpoint request and response themselves require space, and higher-priority queued messages can delay it. Choose a conservative threshold well below the platform's actual limit.
+
+```js
+__sequenceRunner.setChatRolloverLimit(30)
+__sequenceRunner.setChatRolloverLimit(null) // disable
+__sequenceRunner.getState().chatRollover
+```
+
 ## Automatic chat rollover / handoff
 
 The runner can continue a sequence in a fresh chat when the assistant explicitly returns this machine-readable block at the end of its response:
