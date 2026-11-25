@@ -127,6 +127,7 @@ Regression coverage must protect at least these behavior classes:
 - non-Project handoff selects visible general New Chat
 - navigation waits for URL change before writing to the new composer
 - fresh-chat handoff selects/confirms Chat mode when the Chat/Work toggle exists
+- verified automatic fresh-chat handoff intentionally clears known or unknown existing text, including late restored text; verifies the new empty composer before insertion; never clears the old conversation or an unverified destination; normal draft protection remains intact
 - handoff prompt reinstalls the Runner contract so another rollover remains possible
 
 ### Panel, limits, restart and diagnostics
