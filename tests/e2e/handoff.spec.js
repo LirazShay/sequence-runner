@@ -273,7 +273,7 @@ test("malformed handoff stops with an explicit error instead of silently continu
   expect(error?.message).toContain("Invalid new-chat handoff response");
 });
 
-test("a second handoff clears only a previously sent Runner prompt restored as a fresh-chat draft", async ({ harness }) => {
+test("a second handoff clears a previously sent Runner prompt restored as a fresh-chat draft", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     secondChatDraft: "previous-handoff",
@@ -298,12 +298,12 @@ test("a second handoff clears only a previously sent Runner prompt restored as a
   expect(events.filter((event) => event.type === "send")).toHaveLength(3);
 
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
-  expect(log.filter((entry) => entry.event === "handoff-restored-sent-draft-detected")).toHaveLength(1);
-  expect(log.filter((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toHaveLength(1);
+  expect(log.filter((entry) => entry.event === "handoff-draft-overwrite-started")).toHaveLength(1);
+  expect(log.filter((entry) => entry.event === "handoff-draft-overwrite-verified")).toHaveLength(1);
   expect(log.some((entry) => entry.event === "error")).toBeFalsy();
 });
 
-test("a second handoff recognizes previously sent content after blank lines were collapsed", async ({ harness }) => {
+test("a second handoff replaces previously sent content with collapsed blank lines", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     secondChatDraft: "previous-handoff-collapsed-lines",
@@ -324,7 +324,7 @@ test("a second handoff recognizes previously sent content after blank lines were
   const events = await harness.events();
   expect(events.filter((event) => event.type === "new-chat-draft-restored")).toHaveLength(1);
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
-  expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeTruthy();
+  expect(log.some((entry) => entry.event === "handoff-draft-overwrite-verified")).toBeTruthy();
 });
 
 test("handoff clears a restored ordinary sent message from the old chat", async ({ harness }) => {
@@ -351,36 +351,37 @@ test("handoff clears a restored ordinary sent message from the old chat", async 
   expect(restored).toBeTruthy();
   expect(events.filter(event => event.type === "send")[3].at).toBeGreaterThan(restored.at);
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
-  expect(log.filter(event => event.event === "handoff-restored-sent-draft-cleared")
-    .map(event => event.source)).toEqual(["old-chat-user-message"]);
+  expect(log.filter(event => event.event === "handoff-draft-overwrite-verified")).toHaveLength(1);
 });
 
-test("a different draft in the new composer is preserved and blocks handoff", async ({ harness }) => {
+test("a different draft in the verified new composer is intentionally overwritten", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     secondChatDraft: "USER_DRAFT_IN_FRESH_CHAT",
+    secondChatDraftDelayMs: 0,
     responses: [
       { type: "normal", text: handoffResponse("FIRST_FRESH_CHAT") },
-      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") }
+      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") },
+      { type: "normal", text: "סיימתי" }
     ]
   });
-
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
-  await harness.waitForState("ERROR", 5000);
+  await harness.waitForState("DONE", 5000);
 
   const sent = await harness.sentMessages();
-  expect(sent).toHaveLength(2);
-
-  const mock = await harness.page.evaluate(() => window.__mockChatGPT.getState());
-  expect(mock.composerText).toBe("USER_DRAFT_IN_FRESH_CHAT");
-
+  expect(sent).toHaveLength(3);
+  expect(sent[2]).toContain("SECOND_FRESH_CHAT");
+  expect(sent[2]).not.toContain("USER_DRAFT_IN_FRESH_CHAT");
+  const events = await harness.events();
+  const restored = events.find(event => event.type === "new-chat-draft-restored");
+  expect(restored).toBeTruthy();
+  expect(events.filter(event => event.type === "send")[2].at).toBeGreaterThan(restored.at);
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
-  const error = log.findLast((entry) => entry.event === "error");
-  expect(error?.message).toContain("unrecognized draft");
-  expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeFalsy();
+  expect(log.filter(event => event.event === "handoff-draft-overwrite-verified")).toHaveLength(1);
+  expect(log.some(event => event.event === "error")).toBe(false);
 });
 
-test("a late restored previous handoff draft is recognized before sending the next prompt", async ({ harness }) => {
+test("a late restored previous handoff draft is replaced before sending the next prompt", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     secondChatDraft: "previous-handoff-collapsed-lines",
@@ -407,32 +408,35 @@ test("a late restored previous handoff draft is recognized before sending the ne
 
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
   expect(log.filter((entry) => entry.event === "handoff-composer-settled")).toHaveLength(2);
-  expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeTruthy();
+  expect(log.some((entry) => entry.event === "handoff-draft-overwrite-verified")).toBeTruthy();
   expect(log.some((entry) => entry.event === "error")).toBeFalsy();
 });
 
-test("a late unknown draft is not overwritten while the new-chat composer settles", async ({ harness }) => {
+test("a late unknown draft is intentionally overwritten after the new-chat composer settles", async ({ harness }) => {
   await harness.load();
   await harness.setScenario({
     secondChatDraft: "USER_DRAFT_AFTER_NAVIGATION",
     secondChatDraftDelayMs: 80,
     responses: [
       { type: "normal", text: handoffResponse("FIRST_FRESH_CHAT") },
-      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") }
+      { type: "normal", text: handoffResponse("SECOND_FRESH_CHAT") },
+      { type: "normal", text: "סיימתי" }
     ]
   });
-
   await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
-  await harness.waitForState("ERROR", 5000);
+  await harness.waitForState("DONE", 5000);
 
-  expect(await harness.sentMessages()).toHaveLength(2);
-  const mockState = await harness.page.evaluate(() => window.__mockChatGPT.getState());
-  expect(mockState.composerText).toBe("USER_DRAFT_AFTER_NAVIGATION");
-
+  const sent = await harness.sentMessages();
+  expect(sent).toHaveLength(3);
+  expect(sent[2]).toContain("SECOND_FRESH_CHAT");
+  expect(sent[2]).not.toContain("USER_DRAFT_AFTER_NAVIGATION");
+  const events = await harness.events();
+  const restored = events.find(event => event.type === "new-chat-draft-restored");
+  expect(restored).toBeTruthy();
+  expect(events.filter(event => event.type === "send")[2].at).toBeGreaterThan(restored.at);
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
-  const error = log.findLast((entry) => entry.event === "error");
-  expect(error?.message).toContain("unrecognized draft");
-  expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeFalsy();
+  expect(log.filter(event => event.event === "handoff-draft-overwrite-verified")).toHaveLength(1);
+  expect(log.some(event => event.event === "error")).toBe(false);
 });
 
 const headerProjectId = "g-p-6ab84322612881918af6c8e3c0d1fc5b";
@@ -498,7 +502,7 @@ test("Project toolbar handoff works in a narrow layout without the sidebar and a
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
   expect(log.filter(event => event.event === "handoff-navigation-complete").map(event => event.strategy))
     .toEqual(["project-header-home", "project-header-home"]);
-  expect(log.some(event => event.event === "handoff-restored-sent-draft-cleared")).toBe(true);
+  expect(log.some(event => event.event === "handoff-draft-overwrite-verified")).toBe(true);
   const mock = await harness.page.evaluate(() => window.__mockChatGPT.getState());
   expect(mock.path).toBe("/g/" + headerProjectId + "/c/mock-chat-2");
 });
@@ -526,6 +530,7 @@ test("Project toolbar handoff never sends after navigation reaches another Proje
   expect(await harness.sentMessages()).toHaveLength(1);
   const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
   expect(log.findLast(event => event.event === "error")?.message).toContain("expected Project");
+  expect(log.some(event => event.event === "handoff-draft-overwrite-started")).toBe(false);
 });
 
 test("Project toolbar handoff ignores unrelated and hidden links when the sidebar is unavailable", async ({ harness }) => {
