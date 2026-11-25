@@ -194,7 +194,8 @@ Rules:
 - malformed markers are an error, not ordinary continuation
 - explicit step-limit safety has highest priority
 - a due user-queued intermediate message keeps its existing boundary precedence over valid handoff
-- in a Project, use the exact current-Project New Chat action; outside a Project, use the visible general New Chat action
+- in a Project, prefer the verified visible header link to the exact current Project home; if absent, use the existing current-Project New Chat action and legacy breadcrumb fallback; outside a Project, use the visible general New Chat action
+- for Project home navigation, require the exact same-Project destination and no visible conversation turns before sending the handoff; verify again after selecting Chat mode
 - after clicking New Chat, wait for URL change and an unchanged visible composer node/text over a short settle window before touching the composer; late draft restoration must not be raced
 - only use the new empty visible composer after navigation completes; if ChatGPT restores a previous Runner handoff prompt with only blank paragraph separators changed, the Runner may clear that known sent copy with verified ownership and clear success; preserve any different draft
 - if the verified Composer mode toggle exists, select/confirm visible `Chat` (`aria-pressed="true"`) before sending; fail safely if Chat cannot be selected; absence of the toggle remains compatible
