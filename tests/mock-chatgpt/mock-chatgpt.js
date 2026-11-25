@@ -507,8 +507,16 @@
     record("send", {
       text,
       stopVisible: !!currentStopButton(),
-      composerMode: state.composerMode
+      composerMode: state.composerMode,
+      path: location.pathname
     });
+
+    // Sending the first message from a Project home creates a chat in it.
+    const projectHome = location.pathname.match(/^\/g\/(g-p-[^/]+)\/project$/);
+    if (projectHome) {
+      history.pushState({}, "", `/g/${projectHome[1]}/c/mock-chat-${state.newChatCounter}`);
+      syncRouteLabel();
+    }
 
     clearComposer();
     const turn = createTurn(text);
@@ -522,12 +530,12 @@
     return /^\/g\/g-p-[^/]+\/c\/[^/]+/.test(location.pathname);
   }
 
-  function performNewChat(kind) {
+  function performNewChat(kind, homePath = null) {
     const project = kind === "project" || isProjectRoute();
     const newChatId = ++state.newChatCounter;
-    const newPath = project
+    const newPath = homePath || (project
       ? `/g/g-p-mock/c/mock-chat-${newChatId}`
-      : `/c/mock-chat-${newChatId}`;
+      : `/c/mock-chat-${newChatId}`);
 
     record("new-chat-click", {
       kind: project ? "project" : "regular",
@@ -675,6 +683,9 @@
       });
     },
     setComposerText,
+    openProjectHome(path) {
+      performNewChat("project", path);
+    },
     addStaleComposer,
     getEvents() {
       return state.events.map((entry) => ({ ...entry }));

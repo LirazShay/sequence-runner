@@ -406,3 +406,107 @@ test("a late unknown draft is not overwritten while the new-chat composer settle
   expect(error?.message).toContain("unrecognized draft");
   expect(log.some((entry) => entry.event === "handoff-restored-sent-draft-cleared")).toBeFalsy();
 });
+
+const headerProjectId = "g-p-6ab84322612881918af6c8e3c0d1fc5b";
+const headerProjectHome = "/g/" + headerProjectId + "/project";
+
+async function installProjectHeader(harness, options = {}) {
+  await harness.page.evaluate(({ home, options }) => {
+    function appendLink(href, destination, hidden = false) {
+      const link = document.createElement("a");
+      link.className = "button-toolbar button-link";
+      link.setAttribute("aria-label", "Mock Project");
+      link.setAttribute("data-discover", "true");
+      link.href = href;
+      link.textContent = "Project";
+      if (hidden) link.style.display = "none";
+      link.addEventListener("click", event => {
+        event.preventDefault();
+        window.__mockChatGPT.openProjectHome(destination);
+      });
+      document.querySelector(".chat-header").append(link);
+    }
+    // An equally named Project and a hidden duplicate must never be used.
+    appendLink("/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/project", "/g/g-p-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/project");
+    appendLink(home, "/g/g-p-hidden/project", true);
+    if (!options.wrongOnly) {
+      appendLink(home, options.destination || home);
+    }
+    if (options.noSidebar) document.querySelector(".sidebar").style.display = "none";
+  }, { home: headerProjectHome, options });
+}
+
+test("Project toolbar handoff works in a narrow layout without the sidebar and across repeated fresh chats", async ({ harness }) => {
+  await harness.page.setViewportSize({ width: 600, height: 800 });
+  await harness.load("http://mock.local/g/" + headerProjectId + "-descriptive-slug/c/start");
+  await installProjectHeader(harness, { noSidebar: true });
+  await harness.setScenario({
+    navigationClearDelayMs: 250,
+    secondChatDraft: "previous-handoff-collapsed-lines",
+    secondChatDraftDelayMs: 80,
+    responses: [
+      { type: "normal", text: handoffResponse("HEADER_FIRST") },
+      { type: "normal", text: handoffResponse("HEADER_SECOND") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE", 8000);
+
+  const events = await harness.events();
+  const clicks = events.filter(event => event.type === "new-chat-click");
+  const ready = events.filter(event => event.type === "new-chat-ready");
+  const sends = events.filter(event => event.type === "send");
+  expect(clicks).toHaveLength(2);
+  expect(clicks.map(event => event.to)).toEqual([headerProjectHome, headerProjectHome]);
+  expect(sends).toHaveLength(3);
+  expect(sends[1].path).toBe(headerProjectHome);
+  expect(sends[2].path).toBe(headerProjectHome);
+  expect(sends[1].text).toContain("HEADER_FIRST");
+  expect(sends[2].text).toContain("HEADER_SECOND");
+  expect(sends[1].at).toBeGreaterThanOrEqual(ready[0].at);
+  expect(sends[2].at).toBeGreaterThanOrEqual(ready[1].at);
+  expect((await harness.runnerState()).handoffCount).toBe(2);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.filter(event => event.event === "handoff-navigation-complete").map(event => event.strategy))
+    .toEqual(["project-header-home", "project-header-home"]);
+  expect(log.some(event => event.event === "handoff-restored-sent-draft-cleared")).toBe(true);
+  const mock = await harness.page.evaluate(() => window.__mockChatGPT.getState());
+  expect(mock.path).toBe("/g/" + headerProjectId + "/c/mock-chat-2");
+});
+
+test("Project toolbar link takes precedence over a visible sidebar action", async ({ harness }) => {
+  await harness.load("http://mock.local/g/" + headerProjectId + "/c/start");
+  await installProjectHeader(harness);
+  await harness.setScenario({
+    responses: [
+      { type: "normal", text: handoffResponse("HEADER_PREFERRED") },
+      { type: "normal", text: "סיימתי" }
+    ]
+  });
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("DONE", 4000);
+  expect((await harness.events()).find(event => event.type === "new-chat-click")?.to).toBe(headerProjectHome);
+});
+
+test("Project toolbar handoff never sends after navigation reaches another Project", async ({ harness }) => {
+  await harness.load("http://mock.local/g/" + headerProjectId + "/c/start");
+  await installProjectHeader(harness, { noSidebar: true, destination: "/g/g-p-wrong/project" });
+  await harness.setScenario({ responses: [{ type: "normal", text: handoffResponse("DO_NOT_SEND") }] });
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR", 4000);
+  expect(await harness.sentMessages()).toHaveLength(1);
+  const log = await harness.page.evaluate(() => window.__sequenceRunner.getLog());
+  expect(log.findLast(event => event.event === "error")?.message).toContain("expected Project");
+});
+
+test("Project toolbar handoff ignores unrelated and hidden links when the sidebar is unavailable", async ({ harness }) => {
+  await harness.load("http://mock.local/g/" + headerProjectId + "/c/start");
+  await installProjectHeader(harness, { noSidebar: true, wrongOnly: true });
+  await harness.page.evaluate(() => document.querySelector('nav[aria-label="Breadcrumb"]')?.remove());
+  await harness.setScenario({ responses: [{ type: "normal", text: handoffResponse("DO_NOT_SEND") }] });
+  await harness.page.evaluate(() => window.__sequenceRunner.startExistingContext());
+  await harness.waitForState("ERROR", 4000);
+  expect(await harness.sentMessages()).toHaveLength(1);
+  expect((await harness.events()).some(event => event.type === "new-chat-click")).toBe(false);
+});
