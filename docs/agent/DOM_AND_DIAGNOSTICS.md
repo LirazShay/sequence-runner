@@ -70,7 +70,7 @@ Fallback mechanisms are allowed, but the hard invariant before Send is:
 requested text == actual composer text
 ```
 
-Never overwrite an existing user draft.
+Never overwrite an existing user draft in an existing conversation. Verified automatic fresh-chat handoff is the sole intentional exception.
 
 Do not use direct `innerHTML` mutation as the primary insertion mechanism.
 
@@ -78,7 +78,7 @@ Do not use direct `innerHTML` mutation as the primary insertion mechanism.
 
 After clicking New Chat, wait for the URL to change before writing to the composer. This prevents the old-composer SPA race. Require the visible composer node and text to remain unchanged for a short settle window before using it; a cached draft may appear after the initially empty UI.
 
-Only after navigation completes may the new visible composer be used. If it is empty, continue normally. A previously sent Runner handoff prompt may be restored into this fresh composer by the ChatGPT UI; clear it only when it matches the full previously sent prompt from this Runner session after blank-line normalization (no broad whitespace matching), verify that clearing succeeded, and then continue. Never clear an unknown or user-edited draft; report a specific blocking error instead.
+Only after navigation completes, the destination is verified, no visible turns or generation remain, and Chat mode is confirmed may the new visible composer be cleared. For automatic handoff only, intentionally replace any existing text, without attempting to identify its origin. Require a settled empty composer before inserting the handoff prompt; limit clearing to two attempts and stop if clearing or destination verification fails. Recheck the destination before Send. Never apply this overwrite permission to existing conversations.
 
 In a Project, prefer clicking the exact current Project header link to the Project home. Verify the exact destination route and that no visible conversation turns remain; then use the settled fresh composer. Recheck the destination after selecting Chat mode. If the link is absent, retain the URL-matched sidebar new-chat action and legacy breadcrumb fallback. Outside a Project, use the visible general New Chat action. When the current Project cannot be identified or navigation reaches the wrong destination, fail safely rather than opening a regular chat or sending to another Project. Do not construct Project conversation URLs manually when a verified UI action exists.
 
