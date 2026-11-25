@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.52";
+    const VERSION = "3.53";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -378,7 +378,6 @@
     let handoffCount = 0;
     let chatRolloverLimit = null;
     let chatRolloverRequested = false;
-    let lastSuccessfulHandoffPrompt = null;
     const injectionQueue = [];
     let lastStatusMessage = null;
     let lastStatusColor = null;
@@ -1860,12 +1859,6 @@
         const oldComposer =
             getComposer();
 
-        const oldTurnKeys = new Set(
-            getTurns()
-                .map(getTurnKey)
-                .filter(Boolean)
-        );
-
         const navigationStartedAt =
             Date.now();
 
@@ -1876,9 +1869,24 @@
 
         // Follow the verified UI link; do not synthesize a conversation URL.
         // For Project home, require the exact same-project destination.
+        const oldRoute = new URL(oldUrl);
+        const oldProjectSegment = oldRoute.pathname.split("/")[2];
+        const projectId = target.project?.id ||
+            oldProjectSegment?.match(/^g-p-[0-9a-f]{32}(?=-|$)/i)?.[0] ||
+            oldProjectSegment;
         const destinationMatches = function () {
-            return !target.expectedPath ||
-                location.pathname === target.expectedPath;
+            if (location.origin !== oldRoute.origin) {
+                return false;
+            }
+            if (target.expectedPath) {
+                return location.pathname === target.expectedPath;
+            }
+            if (target.kind === "project") {
+                const match = location.pathname.match(/^\/g\/([^/]+)\/(?:project\/?|c\/[^/]+\/?)$/);
+                return !!match && !!projectId &&
+                    (match[1] === projectId || match[1].startsWith(projectId + "-"));
+            }
+            return location.pathname === "/" || /^\/c\/[^/]+\/?$/.test(location.pathname);
         };
 
         target.button.click();
@@ -1912,179 +1920,97 @@
             );
         }
 
-        const previouslySentPrompt =
-            normalizeText(
-                lastSuccessfulHandoffPrompt
-            );
-        const comparablePreviouslySentPrompt =
-            normalizeRestoredHandoffText(
-                previouslySentPrompt
-            );
+        // Overwrite permission belongs only to this automatic handoff,
+        // after navigation to an empty conversation is verified.
+        const getFreshComposer = function () {
+            if (stopped || location.href !== newUrl ||
+                !destinationMatches() ||
+                getTurns().some(isElementVisible) || getStopButton()) {
+                return null;
+            }
+            const candidate = getComposer();
+            return isElementVisible(candidate) ? candidate : null;
+        };
 
         let readyComposer = null;
         let readyText = null;
         let readySince = 0;
+        let clearAttempts = 0;
+        const resetSettle = function () {
+            readyComposer = null;
+            readyText = null;
+            readySince = 0;
+        };
 
-        const ready = await waitUntil(
-            function () {
-                const oldTurnStillVisible =
-                    getTurns().some(
-                        function (turn) {
-                            const key =
-                                getTurnKey(turn);
-
-                            return (
-                                key &&
-                                oldTurnKeys.has(key) &&
-                                isElementVisible(turn)
-                            );
-                        }
-                    );
-
-                const projectHomeHasTurns =
-                    target.expectedPath &&
-                    getTurns().some(isElementVisible);
-
-                if (!destinationMatches() || oldTurnStillVisible || projectHomeHasTurns) {
-                    readyComposer = null;
-                    readyText = null;
-                    readySince = 0;
+        const waitForSettledComposer = function (allowOverwrite) {
+            return waitUntil(function () {
+                const candidate = getFreshComposer();
+                if (!candidate) {
+                    resetSettle();
                     return null;
                 }
 
-                const candidate =
-                    getComposer();
-
-                if (
-                    !candidate ||
-                    !isElementVisible(
-                        candidate
-                    ) ||
-                    getStopButton()
-                ) {
-                    readyComposer = null;
-                    readyText = null;
-                    readySince = 0;
-                    return null;
-                }
-
-                const text =
-                    getComposerElementText(
-                        candidate
-                    );
-
-                if (
-                    text &&
-                    (
-                        !previouslySentPrompt ||
-                        normalizeRestoredHandoffText(text) !==
-                            comparablePreviouslySentPrompt
-                    )
-                ) {
-                    readyComposer = null;
-                    readyText = null;
-                    readySince = 0;
-                    return null;
-                }
-
-                // The home composer may initially be empty before
-                // ChatGPT asynchronously restores a cached draft.
-                // Only accept a node/text pair after it has settled.
-                if (
-                    readyComposer !== candidate ||
-                    readyText !== text
-                ) {
+                const text = getComposerElementText(candidate);
+                // ChatGPT may restore text late or replace the composer.
+                if (readyComposer !== candidate || readyText !== text) {
                     readyComposer = candidate;
                     readyText = text;
                     readySince = Date.now();
                     return null;
                 }
-
-                if (
-                    Date.now() - readySince <
-                    CONFIG.HANDOFF_COMPOSER_STABLE_MS
-                ) {
+                if (Date.now() - readySince < CONFIG.HANDOFF_COMPOSER_STABLE_MS) {
                     return null;
                 }
 
-                return {
-                    composer: candidate,
-                    restoredSentDraft:
-                        !!text && !!previouslySentPrompt,
-                    restoredDraftText: text
-                };
-            },
-            CONFIG.NAVIGATION_TIMEOUT_MS,
-            50
-        );
+                if (allowOverwrite && text) {
+                    // The owner explicitly permits replacing any existing
+                    // text in this verified fresh chat. Bound the attempts.
+                    if (clearAttempts >= 2) {
+                        return { clearFailed: true };
+                    }
+                    clearAttempts++;
+                    record("handoff-draft-overwrite-started", {
+                        attempt: clearAttempts,
+                        length: text.length
+                    });
+                    clearComposer(candidate);
+                    resetSettle();
+                    return null;
+                }
+                return { composer: candidate };
+            }, CONFIG.NAVIGATION_TIMEOUT_MS, 50);
+        };
 
-        if (!ready) {
-            const candidate = getComposer();
-            if (
-                candidate &&
-                isElementVisible(candidate) &&
-                getComposerElementText(candidate)
-            ) {
-                throw new Error(
-                    "The new chat composer contains an unrecognized draft; refusing to overwrite it."
-                );
-            }
-
+        // Verify navigation before touching the mode toggle.
+        if (!await waitForSettledComposer(false)) {
             throw new Error(
                 "The old chat did not clear or the new composer did not become ready."
             );
         }
 
-        const composer = ready.composer;
+        const composerMode = await ensureChatComposerMode();
 
-        record("handoff-composer-settled", {
-            restoredSentDraft:
-                ready.restoredSentDraft,
-            stableMs:
-                CONFIG.HANDOFF_COMPOSER_STABLE_MS
-        });
-
-        if (ready.restoredSentDraft) {
-            record("handoff-restored-sent-draft-detected", {
-                length: previouslySentPrompt.length
-            });
-
-            // A previous Runner handoff was already sent and completed.
-            // Only its exact restored copy may be cleared here.
-            const cleared = await rollbackComposerWrite(
-                composer,
-                ready.restoredDraftText,
-                "runner-handoff",
-                "restored-sent-draft"
-            );
-
-            if (
-                !cleared ||
-                getComposer() !== composer ||
-                !isElementVisible(composer) ||
-                getComposerElementText(composer)
-            ) {
-                throw new Error(
-                    "The previously sent handoff draft could not be cleared safely."
-                );
-            }
-
-            record("handoff-restored-sent-draft-cleared", {
-                length: previouslySentPrompt.length
-            });
-        }
-
-        const composerMode =
-            await ensureChatComposerMode();
-
-        if (
-            !destinationMatches() ||
-            (target.expectedPath && getTurns().some(isElementVisible))
-        ) {
+        // Switching Chat mode can replace the composer or restore a draft.
+        // Only clear after mode selection, and verify a settled empty composer.
+        const ready = await waitForSettledComposer(true);
+        if (!ready || ready.clearFailed ||
+            getFreshComposer() !== ready.composer ||
+            getComposerElementText(ready.composer)) {
             throw new Error(
-                "Project home changed before the handoff prompt could be sent."
+                "The fresh chat composer could not be cleared and verified."
             );
         }
+
+        const composer = ready.composer;
+        if (clearAttempts) {
+            record("handoff-draft-overwrite-verified", {
+                attempts: clearAttempts
+            });
+        }
+        record("handoff-composer-settled", {
+            overwrittenDraft: clearAttempts > 0,
+            stableMs: CONFIG.HANDOFF_COMPOSER_STABLE_MS
+        });
 
         return {
             kind: target.kind,
@@ -4973,13 +4899,6 @@
         );
     }
 
-    function normalizeRestoredHandoffText(text) {
-        // ChatGPT can collapse blank paragraphs when restoring a sent draft.
-        // Preserve all nonblank content; do not use broad whitespace matching.
-        return normalizeText(text)
-            .replace(/\n[ \t]*\n+/g, "\n");
-    }
-
     function createComposerConflictError(message, code) {
         const error = new Error(message);
         error.code = code;
@@ -5486,7 +5405,6 @@
         chatRolloverLimit = null;
         chatRolloverRequested = false;
         panel.querySelector('[data-input="chat-rollover-limit"]').value = "";
-        lastSuccessfulHandoffPrompt = null;
         lastStatusMessage = null;
         lastStatusColor = null;
 
@@ -6400,6 +6318,15 @@
             throw err;
         }
 
+        // Do not send to a different conversation if the route changes
+        // while the composer or Send button is being prepared.
+        if (label === "handoff" &&
+            (stopped || location.href !== opts.handoffUrl ||
+                getTurns().some(isElementVisible) || getStopButton())) {
+            sendLocked = false;
+            throw new Error("Fresh chat changed before the handoff prompt could be sent.");
+        }
+
         resetLongWorkSplitTracking(
             "runner-send"
         );
@@ -6530,7 +6457,8 @@
                     "handoff",
                     {
                         deferWhenBlocked:
-                            false
+                            false,
+                        handoffUrl: navigation.newUrl
                     }
                 );
 
@@ -6541,7 +6469,6 @@
             }
 
             handoffCount++;
-            lastSuccessfulHandoffPrompt = outgoingPrompt;
 
             record("handoff-sent", {
                 count: handoffCount,

@@ -58,7 +58,7 @@ The longer-term direction is a generic sequence/workflow runner, not permanent h
 
 - Prefer KISS and deterministic behavior.
 - Normal automatic Runner traffic preserves one sent prompt per newly completed Assistant turn.
-- Never overwrite user composer text.
+- Never overwrite user composer text in an existing conversation. The explicit exception is an automatic handoff after verifying a fresh, empty conversation; replace any pre-existing composer text there with the handoff prompt.
 - Never click ChatGPT Stop as part of normal automatic continuation, handoff, wake/split, or immediate-message behavior unless an explicitly designed user action says otherwise.
 - Preserve an immediate manual stop path.
 - Use verified DOM behavior; investigate UI changes instead of guessing selectors.

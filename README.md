@@ -132,7 +132,7 @@ START
 - Startup no longer uses a separate untracked busy-wait path. If **Existing task + opening message already sent** is started while its opening response is already generating, that response is adopted into the normal tracked-cycle machinery, so wake, connection-interruption, completion and handoff behavior remain consistent. Adoption selects the latest **visible** conversation turn, not the last DOM turn: ChatGPT can retain hidden turns from other chat views after the active turn. New response lookup likewise ignores hidden stale turns, and duplicate turn keys prefer visible nodes. The compact first safety contract stays pending through wake or explicit immediate-message supersession and is sent afterward unless the adopted response already completes or hands off the sequence. The adopted pre-run response is not counted as a Runner response. Ordinary existing/new-task startup still defers behind unrelated pre-existing generation without nudging it.
 - Wake tracking is cycle-based rather than turn-node-based: temporary loss of the tracked turn DOM does not disable the one-shot long-response wake while generation is still active.
 - The user can always stop manually by clicking the status badge.
-- Existing composer text is never overwritten automatically.
+- Existing composer text is never overwritten automatically in an existing conversation. Verified automatic fresh-chat handoff intentionally replaces any pre-existing composer text.
 - Text insertion is verified before Send is clicked.
 - Clicking the floating status badge stops the runner manually.
 
@@ -327,7 +327,7 @@ Behavior:
 - Inside a Project chat, prefer the visible header Project link whose same-origin `/g/<project-id>/project` destination exactly matches the current chat's stable Project ID (ignoring the descriptive route slug). The Project home has a fresh-chat composer even without a visible sidebar; sending the handoff there creates a new chat in that Project. If the verified header link is absent, use the existing matched sidebar action or legacy breadcrumb fallback. Never silently open an ordinary chat if Project identification fails.
 - Outside a Project, the runner clicks the visible general `New chat` action.
 - For the header-link path, verify the exact Project home route and the absence of visible conversation turns before sending. Navigation must complete before the new composer is used. This prevents writing into the old composer during the SPA transition. The visible composer node and its current text must additionally remain unchanged for 500 ms before use, preventing a late draft restore after an initially empty composer.
-- A later handoff may open the fresh-chat page with the exact text of a handoff prompt the Runner previously sent restored as a stale draft (observed in ChatGPT). Only if that draft matches the complete previously sent Runner handoff prompt after normalizing blank paragraph separators (without changing the remaining content), the Runner clears and verifies it before continuing. Any other non-empty draft is preserved and blocks automatic handoff with a specific error; the Runner never replaces arbitrary composer text.
+- During automatic handoff only, once the new URL, empty conversation, visible settled composer and Chat mode are verified, the Runner intentionally clears any pre-existing text, regardless of its source or formatting. It verifies a settled empty composer before inserting the new handoff prompt, with at most two clearing attempts. Existing-conversation draft protection is unchanged. The Runner never clears a composer while still on the old chat or if the fresh destination cannot be verified.
 - Before the handoff prompt is inserted, the runner checks the verified Chat/Work `Composer mode` toggle when it exists. If Work (or any non-Chat state) is active, it clicks `Chat` and waits until that button reports `aria-pressed="true"`; if the toggle exists but Chat cannot be selected, the handoff fails instead of sending in the wrong mode. UI variants without that toggle continue normally.
 - The extracted handoff text is treated as a **new task** in the fresh chat: the runner wraps it with the same new-task opening format plus the sequence/completion/handoff contract, so the new chat immediately knows the task and can later emit completion or another handoff correctly.
 - That first handoff message also includes a chat-title instruction: when the task contains a clear chat number, use `צ'אט N` with that number; otherwise use a short descriptive title based on the work the fresh chat is planned to perform. This instruction is added only to chats opened automatically by handoff.
@@ -416,7 +416,7 @@ Intermediate-message responses count as runner-managed completed responses and t
 
 ### Recovery from user text or manual chat activity
 
-The runner never overwrites text that the user has typed into ChatGPT's composer.
+In an existing conversation the runner never overwrites text that the user has typed into ChatGPT's composer. Automatic handoff into a verified fresh chat is the sole intentional overwrite exception.
 
 If an automatic continuation becomes due while:
 
