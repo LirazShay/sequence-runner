@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.52";
+    const VERSION = "3.53";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -1866,6 +1866,25 @@
                 .filter(Boolean)
         );
 
+        // Snapshot sent User messages before the SPA removes the old chat.
+        // A restored exact copy is not a new draft. Never infer ownership
+        // from a prefix, a substring, or text in a hidden conversation.
+        const restoredDraftCandidates = new Map();
+        const rememberSentDraft = function (text, source) {
+            const key = normalizeRestoredHandoffText(text);
+            if (key && !restoredDraftCandidates.has(key)) {
+                restoredDraftCandidates.set(key, source);
+            }
+        };
+        rememberSentDraft(lastSuccessfulHandoffPrompt, "previous-handoff");
+        for (const turn of getTurns().filter(isElementVisible)) {
+            for (const message of turn.querySelectorAll(SELECTORS.userMessage)) {
+                if (isElementVisible(message)) {
+                    rememberSentDraft(getConversationUnitText(message), "old-chat-user-message");
+                }
+            }
+        }
+
         const navigationStartedAt =
             Date.now();
 
@@ -1912,15 +1931,6 @@
             );
         }
 
-        const previouslySentPrompt =
-            normalizeText(
-                lastSuccessfulHandoffPrompt
-            );
-        const comparablePreviouslySentPrompt =
-            normalizeRestoredHandoffText(
-                previouslySentPrompt
-            );
-
         let readyComposer = null;
         let readyText = null;
         let readySince = 0;
@@ -1941,11 +1951,10 @@
                         }
                     );
 
-                const projectHomeHasTurns =
-                    target.expectedPath &&
+                const freshChatHasTurns =
                     getTurns().some(isElementVisible);
 
-                if (!destinationMatches() || oldTurnStillVisible || projectHomeHasTurns) {
+                if (!destinationMatches() || oldTurnStillVisible || freshChatHasTurns) {
                     readyComposer = null;
                     readyText = null;
                     readySince = 0;
@@ -1973,14 +1982,11 @@
                         candidate
                     );
 
-                if (
-                    text &&
-                    (
-                        !previouslySentPrompt ||
-                        normalizeRestoredHandoffText(text) !==
-                            comparablePreviouslySentPrompt
-                    )
-                ) {
+                const restoredDraftSource = text
+                    ? restoredDraftCandidates.get(normalizeRestoredHandoffText(text))
+                    : null;
+
+                if (text && !restoredDraftSource) {
                     readyComposer = null;
                     readyText = null;
                     readySince = 0;
@@ -2009,8 +2015,8 @@
 
                 return {
                     composer: candidate,
-                    restoredSentDraft:
-                        !!text && !!previouslySentPrompt,
+                    restoredSentDraft: !!restoredDraftSource,
+                    restoredDraftSource,
                     restoredDraftText: text
                 };
             },
@@ -2045,12 +2051,19 @@
         });
 
         if (ready.restoredSentDraft) {
+            if (stopped || location.href !== newUrl ||
+                getComposer() !== composer ||
+                !isElementVisible(composer) ||
+                getTurns().some(isElementVisible) || getStopButton()) {
+                throw new Error("Fresh chat changed before the restored draft could be cleared.");
+            }
+
             record("handoff-restored-sent-draft-detected", {
-                length: previouslySentPrompt.length
+                length: ready.restoredDraftText.length,
+                source: ready.restoredDraftSource
             });
 
-            // A previous Runner handoff was already sent and completed.
-            // Only its exact restored copy may be cleared here.
+            // Only the exact, verified copy of a sent message may be cleared.
             const cleared = await rollbackComposerWrite(
                 composer,
                 ready.restoredDraftText,
@@ -2065,12 +2078,13 @@
                 getComposerElementText(composer)
             ) {
                 throw new Error(
-                    "The previously sent handoff draft could not be cleared safely."
+                    "The previously sent draft could not be cleared safely."
                 );
             }
 
             record("handoff-restored-sent-draft-cleared", {
-                length: previouslySentPrompt.length
+                length: ready.restoredDraftText.length,
+                source: ready.restoredDraftSource
             });
         }
 
@@ -2078,8 +2092,9 @@
             await ensureChatComposerMode();
 
         if (
+            location.href !== newUrl ||
             !destinationMatches() ||
-            (target.expectedPath && getTurns().some(isElementVisible))
+            getTurns().some(isElementVisible)
         ) {
             throw new Error(
                 "Project home changed before the handoff prompt could be sent."
