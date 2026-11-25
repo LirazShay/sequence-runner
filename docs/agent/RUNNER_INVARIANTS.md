@@ -67,7 +67,7 @@ Do not replace this with timer logic such as “if ChatGPT looks idle, send agai
 - Track the parent `turnKey` as context/DOM scope, not as the sole response identity.
 - A processed Assistant response must never trigger another continuation even when its parent turn also contains older or newer responses.
 - Never scan old Assistant messages for completion; evaluate only the Assistant content bound to the current tracked response.
-- Existing composer text must never be overwritten automatically.
+- Existing composer text must never be overwritten automatically in an existing conversation. Automatic handoff into a verified fresh chat is the sole intentional exception.
 - After programmatic insertion, verify that actual composer text equals requested text before clicking Send.
 - Never use direct `innerHTML` mutation as the primary insertion mechanism.
 
@@ -197,7 +197,7 @@ Rules:
 - in a Project, prefer the verified visible header link to the exact current Project home; if absent, use the existing current-Project New Chat action and legacy breadcrumb fallback; outside a Project, use the visible general New Chat action
 - for Project home navigation, require the exact same-Project destination and no visible conversation turns before sending the handoff; verify again after selecting Chat mode
 - after clicking New Chat, wait for URL change and an unchanged visible composer node/text over a short settle window before touching the composer; late draft restoration must not be raced
-- only use the new empty visible composer after navigation completes; if ChatGPT restores a previous Runner handoff prompt with only blank paragraph separators changed, the Runner may clear that known sent copy with verified ownership and clear success; preserve any different draft
+- only use the visible composer after navigation completes and no visible conversation turns or generation remain; after selecting Chat mode, intentionally clear any pre-existing text in that verified fresh composer, regardless of origin, and verify a settled empty composer before inserting the handoff prompt; bound clearing attempts and recheck the destination before Send
 - if the verified Composer mode toggle exists, select/confirm visible `Chat` (`aria-pressed="true"`) before sending; fail safely if Chat cannot be selected; absence of the toggle remains compatible
 - treat extracted continuation text as a new task in the fresh chat and reinstall the standard runner contract so later rollovers still work
 - do not construct Project conversation URLs manually when verified UI actions exist
