@@ -122,7 +122,8 @@ Regression coverage must protect at least these behavior classes:
 
 ### Handoff/navigation
 
-- Project handoff selects the exact current Project new-chat action
+- Project handoff prefers the exact same-Project header link, works without a sidebar, and verifies the Project home route before sending; wrong or hidden links must not receive the handoff
+- existing matched Project new-chat action remains a fallback when the header link is absent
 - non-Project handoff selects visible general New Chat
 - navigation waits for URL change before writing to the new composer
 - fresh-chat handoff selects/confirms Chat mode when the Chat/Work toggle exists
