@@ -1869,9 +1869,24 @@
 
         // Follow the verified UI link; do not synthesize a conversation URL.
         // For Project home, require the exact same-project destination.
+        const oldRoute = new URL(oldUrl);
+        const oldProjectSegment = oldRoute.pathname.split("/")[2];
+        const projectId = target.project?.id ||
+            oldProjectSegment?.match(/^g-p-[0-9a-f]{32}(?=-|$)/i)?.[0] ||
+            oldProjectSegment;
         const destinationMatches = function () {
-            return !target.expectedPath ||
-                location.pathname === target.expectedPath;
+            if (location.origin !== oldRoute.origin) {
+                return false;
+            }
+            if (target.expectedPath) {
+                return location.pathname === target.expectedPath;
+            }
+            if (target.kind === "project") {
+                const match = location.pathname.match(/^\/g\/([^/]+)\/(?:project\/?|c\/[^/]+\/?)$/);
+                return !!match && !!projectId &&
+                    (match[1] === projectId || match[1].startsWith(projectId + "-"));
+            }
+            return location.pathname === "/" || /^\/c\/[^/]+\/?$/.test(location.pathname);
         };
 
         target.button.click();
