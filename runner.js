@@ -2624,12 +2624,11 @@
 
         const rolloverStatus = panel.querySelector('[data-role="chat-rollover-status"]');
         if (rolloverStatus) {
-            const count = getChatRolloverMessageCount();
             const message = chatRolloverRequested
                 ? "בקשת מעבר נשלחה; ממתין ל-handoff."
                 : chatRolloverLimit == null
                     ? "כבוי"
-                    : count + " / " + chatRolloverLimit + " הודעות";
+                    : getChatRolloverMessageCount() + " / " + chatRolloverLimit + " הודעות";
             if (rolloverStatus.textContent !== message) rolloverStatus.textContent = message;
         }
 
