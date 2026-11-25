@@ -19,6 +19,7 @@ test("management panel keeps frequent controls above test and diagnostic section
     "metrics",
     "intermediate",
     "run-limit",
+    "chat-rollover",
     "long-wait-wake",
     "diagnostic"
   ]);

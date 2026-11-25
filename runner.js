@@ -5,7 +5,7 @@
 (function () {
     "use strict";
 
-    const VERSION = "3.50";
+    const VERSION = "3.51";
 
     const CONFIG = Object.freeze({
         REGULAR_PROMPT: "תמשיך לשלב הבא",
@@ -38,6 +38,7 @@
         LONG_WAIT_SPLIT_DEFAULT_MINUTES: 15,
         LONG_WAIT_SPLIT_DEFAULT_MESSAGE: "העבודה הזו מתארכת יותר מדי לתשובה אחת. עצור בנקודת checkpoint בטוחה: סיים ואמת רק את המקטע הנוכחי. אם מה שנשאר גדול, חלק אותו למקטעים לפי התכנון, סכם בקצרה מה הושלם ומה המקטע הבא, ואז עצור וחכה ל'תמשיך לשלב הבא'. אל תתחיל את המקטע הבא באותה תשובה.",
         LONG_WAIT_SPLIT_SHORT_MESSAGE: "פצל את העבודה עכשיו: סיים checkpoint בטוח, סכם מה הושלם ומה הבא, עצור, והמשך רק אחרי 'תמשיך לשלב הבא'.",
+        CHAT_ROLLOVER_REQUEST: "הגענו לסף ההודעות שנקבע לצ׳אט הזה. אל תתחיל מקטע עבודה חדש. אם המשימה כולה הסתיימה באמת, סיים בשורת הסיום הרגילה. אחרת, עבור כעת בנקודת checkpoint בטוחה לצ׳אט חדש. שמור ועדכן במקור האמת המתמשך של המשימה (למשל הריפו והענף הנכונים ב-GitHub או מסמך המצב הקיים) את מה שהושלם ואומת, מה עדיין פתוח, החלטות ומגבלות חשובות, ואת הצעד הבא המדויק. אמת שהמידע נשמר בפועל; אם אין מקור מתאים או שלא ניתן לעדכנו, כלול בפרומפט ההמשך את המידע החיוני החסר ואל תטען שנשמר. כתוב NEXT_CHAT_PROMPT קצר אך עצמאי שמפנה למקור האמת המדויק (ריפו, ענף, קובץ או checkpoint לפי הצורך), ומאפשר לצ׳אט הבא להמשיך בלי היסטוריית הצ׳אט הנוכחי. אל תפתח צ׳אט בעצמך ואל תמשיך לעבוד כאן; סיים בבלוק המעבר התקין לפי חוזה Sequence Runner.",
         UI_REFRESH_MS: 1000,
         WATCHDOG_MS: 400,
         CONTINUE_DELAY_MS: 350
@@ -201,6 +202,12 @@
         '<button type="button" data-action="stop" style="flex:1;border:0;background:#b91c1c;color:#fff;border-radius:6px;padding:6px;cursor:pointer">עצור</button>',
         '</div>',
         '<div style="margin-top:7px;font-size:11px;color:#94a3b8">הגבול נבדק רק אחרי שתשובת ChatGPT הנוכחית הושלמה; הוא לא חותך תשובה באמצע.</div>',
+        '</div>',
+        '<div data-role="chat-rollover" style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
+        '<div style="font-weight:700;margin-bottom:5px">מעבר לצ׳אט חדש לפי כמות הודעות</div>',
+        '<input data-input="chat-rollover-limit" type="number" min="1" step="1" placeholder="למשל 30 (ריק = כבוי)" style="width:100%;box-sizing:border-box;background:#0b1220;color:#fff;border:1px solid #374151;border-radius:6px;padding:6px 7px;margin-bottom:5px">',
+        '<div data-role="chat-rollover-status" style="font-size:11px;color:#cbd5e1"></div>',
+        '<div style="font-size:10px;color:#94a3b8">סופר הודעות User ו־Assistant בצ׳אט הנוכחי שניתנות לזיהוי בדף. בסף שולח בקשת שמירה ומעבר במקום המשך רגיל. חל מחדש בכל צ׳אט; ריק מכבה.</div>',
         '</div>',
         '<div data-role="long-wait-wake" style="border-top:1px solid rgba(255,255,255,.12);padding-top:9px;margin-top:10px">',
         '<div style="font-weight:700;margin-bottom:7px">בדיקת תשובה ארוכה</div>',
@@ -367,6 +374,8 @@
     let pendingAutoSendLocked = false;
     let handoffInProgress = false;
     let handoffCount = 0;
+    let chatRolloverLimit = null;
+    let chatRolloverRequested = false;
     let lastSuccessfulHandoffPrompt = null;
     const injectionQueue = [];
     let lastStatusMessage = null;
@@ -2522,6 +2531,40 @@
         };
     }
 
+    // Count current-chat messages, not the run-wide cycle counter.
+    // Hidden retained turns and duplicate turn keys must not inflate the count.
+    function getChatRolloverMessageCount() {
+        const turns = new Map();
+        for (const turn of getTurns().filter(isElementVisible)) {
+            turns.set(getTurnKey(turn), turn);
+        }
+        let count = 0;
+        for (const turn of turns.values()) {
+            const units = getConversationUnits(turn);
+            for (const [role, selector] of [
+                ["user", SELECTORS.userMessage],
+                ["assistant", SELECTORS.assistantMessage]
+            ]) {
+                const roleUnits = units.filter(unit => unit.role === role);
+                count += roleUnits.length || turn.querySelectorAll(selector).length;
+            }
+        }
+        return count;
+    }
+
+    function setChatRolloverLimit(value) {
+        const disabled = value == null || String(value).trim() === "";
+        const limit = disabled ? null : parsePositiveInteger(value);
+        if (!disabled && (limit == null || !Number.isSafeInteger(limit))) {
+            throw new Error("Chat rollover limit must be a positive integer or empty.");
+        }
+        chatRolloverLimit = limit;
+        const input = panel.querySelector('[data-input="chat-rollover-limit"]');
+        if (input) input.value = limit == null ? "" : String(limit);
+        record("chat-rollover-limit-updated", { limit });
+        renderPanel();
+    }
+
     function renderPanel() {
         if (!panel.isConnected) {
             return;
@@ -2577,6 +2620,16 @@
                 "גבול פעיל: עצירה אחרי תגובת Runner #" +
                 stopAfterCompletedResponses +
                 " (" + remaining + " נותרו).";
+        }
+
+        const rolloverStatus = panel.querySelector('[data-role="chat-rollover-status"]');
+        if (rolloverStatus) {
+            const message = chatRolloverRequested
+                ? "בקשת מעבר נשלחה; ממתין ל-handoff."
+                : chatRolloverLimit == null
+                    ? "כבוי"
+                    : getChatRolloverMessageCount() + " / " + chatRolloverLimit + " הודעות";
+            if (rolloverStatus.textContent !== message) rolloverStatus.textContent = message;
         }
 
         const startConfig = panel.querySelector(
@@ -3915,6 +3968,16 @@
     }
 
     function setupPanelInteractions() {
+        const rolloverInput = panel.querySelector('[data-input="chat-rollover-limit"]');
+        rolloverInput?.addEventListener("change", function () {
+            try {
+                setChatRolloverLimit(rolloverInput.value);
+                rolloverInput.setCustomValidity("");
+            } catch (err) {
+                rolloverInput.setCustomValidity(err.message);
+                rolloverInput.reportValidity();
+            }
+        });
         const header = panel.querySelector(
             '[data-role="header"]'
         );
@@ -5337,6 +5400,9 @@
         pendingAutoSendLocked = false;
         handoffInProgress = false;
         handoffCount = 0;
+        chatRolloverLimit = null;
+        chatRolloverRequested = false;
+        panel.querySelector('[data-input="chat-rollover-limit"]').value = "";
         lastSuccessfulHandoffPrompt = null;
         lastStatusMessage = null;
         lastStatusColor = null;
@@ -6178,6 +6244,20 @@
             );
         }
 
+        // Select the rollover request only at the actual safe send boundary.
+        // A deferred continuation is re-evaluated after draft/external activity.
+        const basePrompt = prompt;
+        const requestRollover =
+            (label === "continue" || label === "first") &&
+            !chatRolloverRequested &&
+            chatRolloverLimit != null &&
+            getChatRolloverMessageCount() >= chatRolloverLimit;
+        if (requestRollover) {
+            prompt = label === "first"
+                ? prompt + "\n\n" + CONFIG.CHAT_ROLLOVER_REQUEST
+                : CONFIG.CHAT_ROLLOVER_REQUEST;
+        }
+
         sendLocked = true;
 
         setState(
@@ -6225,7 +6305,7 @@
                 composerConflict
             ) {
                 deferAutoSend(
-                    prompt,
+                    basePrompt,
                     label,
                     "composer-occupied",
                     deferBaselineTurnKeys
@@ -6278,6 +6358,11 @@
         });
 
         sendButton.click();
+
+        if (requestRollover) {
+            chatRolloverRequested = true;
+            record("chat-rollover-requested", { limit: chatRolloverLimit });
+        }
 
         if (label === "injection") {
             injectionSentCount++;
@@ -6352,6 +6437,8 @@
                 }
             );
 
+            // The configuration carries over; the request is per chat.
+            chatRolloverRequested = false;
             const sent =
                 await sendPrompt(
                     outgoingPrompt,
@@ -6934,6 +7021,11 @@
                 "sequence-complete"
             );
             stop("done-keyword", true);
+            return;
+        }
+
+        if (chatRolloverRequested) {
+            fail("בקשת המעבר לא החזירה handoff תקין או סיום מלא. הריצה נעצרה כדי לא להעמיס על הצ׳אט.");
             return;
         }
 
@@ -7678,6 +7770,11 @@
                     : null,
                 stopAfterCompletedResponses,
                 stopLimitMode,
+                chatRollover: {
+                    limit: chatRolloverLimit,
+                    requested: chatRolloverRequested,
+                    messageCount: getChatRolloverMessageCount()
+                },
                 chatMetrics: getChatMetrics(),
                 currentCycle: currentCycle
                     ? Object.assign(
@@ -7758,6 +7855,7 @@
             );
         },
         clearStepLimit,
+        setChatRolloverLimit,
         restart:
             restartRunner,
         startExistingContext: function (
